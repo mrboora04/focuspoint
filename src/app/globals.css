@@ -1,11 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  /* Warm & Bright Palette */
-  --background: #252525;
-  /* Charcoal for body contrast */
-  --foreground: #F8F4E9;
-  /* Cream for text */
+  /* Warm & Bright Palette (Light Theme) */
+  --background: #F8F4E9;
+  /* Cream */
+  --foreground: #252525;
+  /* Charcoal */
   --color-cream: #F8F4E9;
   --color-beige: #EFE0C8;
   --color-orange: #F78320;
