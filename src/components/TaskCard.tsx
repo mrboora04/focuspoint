@@ -16,99 +16,96 @@ export default function TaskCard({ title, priority, doText, dontText, onComplete
     const [isExpanded, setIsExpanded] = useState(false);
     const [status, setStatus] = useState<"pending" | "completed">("pending");
 
-    // Priority Colors (Remapped for Warm Theme)
     const priorityColor = {
-        High: "bg-[#F78320]", // Bright Orange
-        Medium: "bg-[#EFE0C8]", // Beige
-        Low: "bg-[#F8F4E9]", // Cream
+        High: "bg-red-500",
+        Medium: "bg-yellow-500",
+        Low: "bg-blue-500",
+    };
+
+    const priorityPoints = { High: 15, Medium: 10, Low: 5 };
+    const points = priorityPoints[priority];
+
+    const handleComplete = () => {
+        setStatus("completed");
+        setTimeout(() => onComplete(points), 500);
     };
 
     return (
-        <motion.div
-            layout
-            onClick={() => !isExpanded && setIsExpanded(true)}
-            className={`relative overflow-hidden rounded-2xl border border-[#252525]/5 p-4 transition-colors ${isExpanded ? "bg-[#EFE0C8]" : "bg-[#F8F4E9]/90 hover:bg-[#F8F4E9]"
-                }`}
-        >
-            {/* 1. MAIN ROW */}
-            <div className="flex items-center justify-between cursor-pointer">
-                <div className="flex items-center gap-3">
-                    {/* Priority Dot with specific shadows */}
-                    <div className={`w-2 h-2 rounded-full ${priorityColor[priority]} 
-                        ${priority === 'High' ? 'shadow-[0_0_8px_#F78320]' : ''}
-                        ${priority === 'Medium' ? 'shadow-[0_0_8px_rgba(37,37,37,0.2)]' : ''}
-                        ${priority === 'Low' ? 'shadow-[0_0_8px_rgba(37,37,37,0.1)]' : ''}
-                    `} />
-                    <h3 className="text-lg font-medium text-[#252525]">{title}</h3>
-                </div>
-                <button
-                    onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                    className="text-[#252525]/40 hover:text-[#252525] transition-colors"
+        <AnimatePresence>
+            {status === "pending" && (
+                <motion.div
+                    layout
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, x: -50 }}
+                    className="w-full bg-white/70 backdrop-blur-2xl rounded-[1.5rem] border border-white/50 shadow-[0_4px_20px_rgb(0,0,0,0.03)] overflow-hidden active:scale-[0.99] transition-transform duration-100"
                 >
-                    <ChevronDown className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
-                </button>
-            </div>
-
-            {/* 2. EXPANDED CONTENT (Strategy & Scoring) */}
-            <AnimatePresence>
-                {isExpanded && status === "pending" && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mt-4 space-y-4"
+                    {/* Header Row */}
+                    <div
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="flex items-center justify-between p-5 cursor-pointer group"
                     >
-                        {/* DO & DON'T SECTION */}
-                        {(doText || dontText) && (
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div className="bg-[#252525]/5 border border-[#252525]/10 p-2 rounded-lg text-[#252525]/80">
-                                    <span className="font-bold block mb-1 text-[#252525]">✅ DO</span>
-                                    {doText || "Focus on one thing."}
-                                </div>
-                                <div className="bg-[#252525]/5 border border-[#252525]/10 p-2 rounded-lg text-[#252525]/80">
-                                    <span className="font-bold block mb-1 text-[#252525]">❌ DON'T</span>
-                                    {dontText || "Multitask."}
-                                </div>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-4">
+                            {/* Priority Dot */}
+                            <div className={`w-3 h-3 rounded-full ${priorityColor[priority]} shadow-[0_0_10px_rgba(0,0,0,0.2)]`} />
 
-                        {/* SCORING BUTTONS (Warm Theme) */}
-                        <div className="grid grid-cols-4 gap-2 pt-2">
-                            <button
-                                onClick={() => onComplete(-15)}
-                                className="col-span-1 flex flex-col items-center justify-center p-2 rounded-xl bg-[#252525]/5 hover:bg-red-500/10 hover:text-red-600 text-[#252525]/60 transition-colors border border-[#252525]/5"
-                            >
-                                <X className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-bold">FAIL</span>
-                            </button>
-
-                            <button
-                                onClick={() => onComplete(10)}
-                                className="col-span-1 flex flex-col items-center justify-center p-2 rounded-xl bg-[#F8F4E9] hover:bg-[#F78320]/20 text-[#252525] transition-colors border border-[#252525]/5"
-                            >
-                                <Check className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-bold">GOOD</span>
-                            </button>
-
-                            <button
-                                onClick={() => onComplete(25)}
-                                className="col-span-1 flex flex-col items-center justify-center p-2 rounded-xl bg-[#F8F4E9] hover:bg-[#F78320]/20 text-[#252525] transition-colors border border-[#252525]/5"
-                            >
-                                <Zap className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-bold">BETTER</span>
-                            </button>
-
-                            <button
-                                onClick={() => onComplete(50)}
-                                className="col-span-1 flex flex-col items-center justify-center p-2 rounded-xl bg-gradient-to-br from-[#F78320] to-[#F78320]/80 text-white shadow-lg shadow-[#F78320]/20 hover:shadow-[#F78320]/40 transition-all transform hover:scale-105"
-                            >
-                                <Trophy className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-bold">BEST</span>
-                            </button>
+                            <h3 className="text-lg font-bold text-[#252525] tracking-tight">{title}</h3>
                         </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </motion.div>
+
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 bg-[#252525]/5 px-3 py-1 rounded-full">
+                                <Zap className="w-3 h-3 text-[#F78320]" strokeWidth={2} />
+                                <span className="text-xs font-bold text-[#252525]/60">{points} pts</span>
+                            </div>
+                            <ChevronDown
+                                className={`w-5 h-5 text-[#252525]/30 transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`}
+                                strokeWidth={2}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Expanded Details */}
+                    <AnimatePresence>
+                        {isExpanded && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="px-5 pb-5 border-t border-[#252525]/5 pt-4 bg-[#F8F4E9]/30"
+                            >
+                                <div className="grid grid-cols-2 gap-3 mb-6">
+                                    <div className="space-y-1">
+                                        <p className="text-[10px] font-bold text-[#252525]/40 uppercase tracking-widest">Do</p>
+                                        <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/10">
+                                            <Check className="w-4 h-4 text-emerald-600" strokeWidth={2} />
+                                            <span className="text-sm font-medium text-emerald-800">{doText || "Execute with focus."}</span>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <p className="text-[10px] font-bold text-[#252525]/40 uppercase tracking-widest">Don't</p>
+                                        <div className="flex items-center gap-2 p-3 rounded-2xl bg-red-500/10 border border-red-500/10">
+                                            <X className="w-4 h-4 text-red-600" strokeWidth={2} />
+                                            <span className="text-sm font-medium text-red-800">{dontText || "Get distracted."}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <motion.button
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleComplete();
+                                    }}
+                                    className="w-full py-4 rounded-xl bg-[#252525] text-white font-bold flex items-center justify-center gap-2 hover:bg-black transition-colors shadow-lg shadow-black/10"
+                                >
+                                    <Flame className="w-5 h-5 text-[#F78320]" strokeWidth={2} />
+                                    COMPLETE TASK
+                                </motion.button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </motion.div>
+            )}
+        </AnimatePresence>
     );
 }
