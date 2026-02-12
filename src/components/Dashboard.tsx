@@ -83,20 +83,20 @@ export default function Dashboard({ state, onSelectMission }: DashboardProps) {
         <div className="w-full max-w-4xl mx-auto space-y-10 animate-in fade-in zoom-in duration-500 p-4">
             {/* HEADER */}
             <header className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-5">
-                    <div className="w-20 h-20 bg-[#F78320] rounded-[2rem] flex items-center justify-center shadow-[0_8px_30px_rgb(247,131,32,0.3)]">
-                        <User className="w-10 h-10 text-white" strokeWidth={2} />
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 bg-[#F78320]/20 rounded-full flex items-center justify-center text-4xl shadow-sm border-2 border-[#F78320]/20">
+                            🦁
+                        </div>
+                        <h1 className="text-3xl font-black tracking-tighter text-theme-text uppercase">COMMANDER</h1>
                     </div>
-                    <div>
-                        <h1 className="text-4xl font-black tracking-tight text-theme-text">COMMANDER</h1>
-                        <p className="text-theme-text opacity-50 text-base font-medium leading-relaxed">Ready for deployment.</p>
-                    </div>
+                    <p className="text-theme-text opacity-50 text-sm font-bold tracking-widest uppercase ml-1">Ready for deployment</p>
                 </div>
 
                 {/* THEME TOGGLE */}
                 <button
                     onClick={toggleTheme}
-                    className="p-4 rounded-[1.5rem] bg-theme-card border border-theme-border text-theme-text hover:scale-95 transition-transform active:scale-90"
+                    className="p-3 rounded-full bg-theme-card border border-theme-border text-theme-text hover:scale-95 transition-transform active:scale-90"
                 >
                     {theme === "light" ? <Moon className="w-6 h-6" /> : <Sun className="w-6 h-6" />}
                 </button>
@@ -223,8 +223,8 @@ export default function Dashboard({ state, onSelectMission }: DashboardProps) {
                             key={i}
                             title={active ? "Active" : "No Activity"}
                             className={`w-10 h-10 shrink-0 rounded-xl transition-all ${active
-                                    ? "bg-emerald-500 shadow-lg shadow-emerald-500/30 scale-100"
-                                    : "bg-black/5 scale-95"
+                                ? "bg-emerald-500 shadow-lg shadow-emerald-500/30 scale-100"
+                                : "bg-black/5 scale-95"
                                 }`}
                         />
                     ))}

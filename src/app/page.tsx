@@ -2,14 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import ChallengeHeader from "@/components/ChallengeHeader";
-import TaskCard from "@/components/TaskCard";
-import TaskInput from "@/components/TaskInput";
-import StreakTracker from "@/components/StreakTracker";
 import Dashboard from "@/components/Dashboard";
-import { AlertTriangle, ArrowLeft, Heart, ShieldAlert } from "lucide-react";
+import ActiveMissionView from "@/components/ActiveMissionView";
+import SplashScreen from "@/components/SplashScreen";
 import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
+import { Heart, ShieldAlert, ArrowRight } from "lucide-react";
 
 // --- TYPES ---
 interface Task {
@@ -32,7 +30,7 @@ interface MissionData {
     bufferDays?: number; // MERCY
   };
   tasks: Task[];
-  history: { [date: string]: "completed" | "failed" | "skipped" | undefined }; // Added "skipped" for mercy
+  history: { [date: string]: "completed" | "failed" | "skipped" | undefined };
   dailyLog: { [date: string]: { tasks: any[] } };
   todayScore: number;
   scoreDate: string;
@@ -55,15 +53,15 @@ export default function Home() {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [viewMode, setViewMode] = useState<"dashboard" | "mission">("dashboard");
   const [isLoaded, setIsLoaded] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [missedDate, setMissedDate] = useState<string | null>(null);
-  const [showMercyAlert, setShowMercyAlert] = useState(false); // NEW
+  const [showMercyAlert, setShowMercyAlert] = useState(false);
 
   // 1. LOAD STATE & THEME
   useEffect(() => {
     const savedState = localStorage.getItem(STORAGE_KEY);
     if (savedState) setState(JSON.parse(savedState));
 
-    // Initialize Theme
     const savedTheme = localStorage.getItem("theme") || "light";
     document.documentElement.setAttribute("data-theme", savedTheme);
 
@@ -90,14 +88,12 @@ export default function Home() {
 
     let missionUpdates: Partial<MissionData> = {};
 
-    // A. MISSED DAY CHECK
     let checkDate = new Date(startDate);
     checkDate.setHours(0, 0, 0, 0);
     let foundMissed = null;
 
     while (checkDate < today) {
       const dateStr = checkDate.toISOString().split('T')[0];
-      // Check if day is missing AND not already marked (completed/failed/skipped)
       if (!activeMission.history[dateStr] && dateStr !== activeMission.scoreDate) {
         foundMissed = dateStr;
         break;
@@ -106,31 +102,22 @@ export default function Home() {
     }
 
     if (foundMissed) {
-      // MERCY CHECK
       const remainingBuffer = activeMission.config.bufferDays || 0;
       if (remainingBuffer > 0) {
-        // Apply Mercy automatically
-        console.log("Applying Mercy for", foundMissed);
         const newHistory = { ...activeMission.history, [foundMissed]: "skipped" as const };
         const newConfig = { ...activeMission.config, bufferDays: remainingBuffer - 1 };
 
-        updateActiveMission({
-          history: newHistory,
-          config: newConfig
-        });
-        setMissedDate(foundMissed); // Triggers Mercy Alert instead
+        updateActiveMission({ history: newHistory, config: newConfig });
+        setMissedDate(foundMissed);
         setShowMercyAlert(true);
       } else {
-        // No Buffer -> Penalty
         setMissedDate(foundMissed);
         setShowMercyAlert(false);
       }
     }
 
-    // B. RESET & POPULATE HABITS
     if (activeMission.scoreDate !== todayStr) {
       const habits = activeMission.config.dailyHabits || [];
-
       const autoTasks: Task[] = habits.map((habit, idx) => ({
         id: Date.now() + idx,
         title: habit,
@@ -148,10 +135,8 @@ export default function Home() {
     if (Object.keys(missionUpdates).length > 0) {
       updateActiveMission(missionUpdates);
     }
-
   }, [state.activeMissionId, viewMode]);
 
-  // --- HANDLERS ---
   const updateActiveMission = (updates: Partial<MissionData>) => {
     if (!state.activeMissionId) return;
     setState(prev => ({
@@ -171,18 +156,12 @@ export default function Home() {
       router.push("/new-challenge");
     } else {
       setState(prev => ({ ...prev, activeMissionId: id }));
-      setViewMode("mission");
+      setViewMode("mission"); // Zoom In
     }
   };
 
-  const addTask = (title: string, priority: "High" | "Medium" | "Low") => {
-    if (!activeMission) return;
-    const newTask: Task = { id: Date.now(), title, priority, status: "pending" };
-    updateActiveMission({ tasks: [newTask, ...activeMission.tasks] });
-  };
-
   const completeTask = (id: number, points: number) => {
-    if (missedDate && !showMercyAlert || !activeMission) return; // Block input only on penalty
+    if (missedDate && !showMercyAlert || !activeMission) return;
 
     const task = activeMission.tasks.find(t => t.id === id);
     if (!task) return;
@@ -216,7 +195,7 @@ export default function Home() {
 
     updateActiveMission({
       todayScore: newScore,
-      tasks: activeMission.tasks.filter(t => t.id !== id),
+      tasks: activeMission.tasks.map(t => t.id === id ? { ...t, status: 'completed' } : t),
       dailyLog: newLog,
       history: newHistory
     });
@@ -246,137 +225,96 @@ export default function Home() {
     setMissedDate(null);
   };
 
-  const handleMercyAck = () => {
-    setMissedDate(null);
-    setShowMercyAlert(false);
-  };
-
   if (!isLoaded) return <div className="min-h-screen bg-theme-bg" />;
 
   return (
-    <main className={`min-h-screen bg-theme-bg text-theme-text p-6 pb-32 font-sans selection:bg-[#F78320]/30 ${missedDate && !showMercyAlert ? "overflow-hidden" : ""}`}>
+    <main className="min-h-screen bg-theme-bg overflow-hidden relative selection:bg-[#F78320]/30 touch-manipulation">
 
-      {/* DASHBOARD VIEW */}
-      {viewMode === "dashboard" ? (
+      {/* 0. SPLASH SCREEN */}
+      <AnimatePresence>
+        {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
+      </AnimatePresence>
+
+      {/* 1. DASHBOARD LAYER (Always mounted, scales down when zoomed out) */}
+      <motion.div
+        animate={{
+          scale: viewMode === "mission" ? 0.9 : 1,
+          opacity: viewMode === "mission" ? 0.5 : 1,
+          filter: viewMode === "mission" ? "blur(10px)" : "blur(0px)"
+        }}
+        transition={{ duration: 0.5 }}
+        className="h-full"
+      >
         <Dashboard state={state} onSelectMission={handleSelectMission} />
-      ) : (
+      </motion.div>
 
-        /* MISSION VIEW */
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          className="max-w-xl mx-auto space-y-8 pt-12 relative"
-        >
-          <button
-            onClick={() => setViewMode("dashboard")}
-            className="absolute -top-6 left-0 flex items-center gap-2 text-sm font-bold text-[#F78320] hover:underline z-50"
+      {/* 2. DYNAMIC ISLAND (Bottom Trigger) */}
+      <AnimatePresence>
+        {activeMission && viewMode === "dashboard" && !showSplash && (
+          <motion.div
+            initial={{ y: 200, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 200, opacity: 0 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[90%] max-w-sm"
           >
-            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-          </button>
-
-          <ChallengeHeader missionConfig={activeMission?.config} />
-
-          {activeMission ? (
-            <>
-              <div className="mt-8">
-                <StreakTracker
-                  history={activeMission.history}
-                  dailyLogs={activeMission.dailyLog}
-                  startDate={activeMission.config.startDate}
-                  duration={activeMission.config.duration}
-                />
-              </div>
-
-              <div className="flex items-center justify-between px-6 py-4 bg-theme-card/50 rounded-2xl border border-theme-border mx-2 shadow-sm">
-                <span className="text-sm font-medium text-theme-text opacity-60">Today's Focus Points</span>
-                <div className="flex items-baseline gap-1">
-                  <span className={`text-3xl font-black ${activeMission.todayScore >= activeMission.config.dailyTarget ? "text-[#F78320]" : "text-theme-text"}`}>
-                    {activeMission.todayScore}
-                  </span>
-                  <span className="text-sm text-theme-text opacity-40 font-bold">/ {activeMission.config.dailyTarget}</span>
+            <motion.button
+              onClick={() => setViewMode("mission")}
+              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: 1.02 }}
+              className="w-full bg-[#1E1A17]/90 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-4 flex items-center justify-between shadow-2xl shadow-black/20"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-[#F78320] rounded-full flex items-center justify-center font-bold text-white text-lg">
+                  {activeMission.todayScore}
+                </div>
+                <div className="text-left">
+                  <p className="text-[#EFE0C8] font-black uppercase text-sm">{activeMission.config.name}</p>
+                  <p className="text-white/40 text-xs font-bold uppercase tracking-wider">Tap to Execute</p>
                 </div>
               </div>
-
-              <section className="space-y-4 px-2">
-                {activeMission.tasks.length > 0 ? (
-                  activeMission.tasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      title={task.title}
-                      priority={task.priority}
-                      onComplete={(points) => completeTask(task.id, points)}
-                      doText={task.title}
-                    />
-                  ))
-                ) : (
-                  <div className="text-center py-10 opacity-50 text-theme-text">
-                    <p className="text-xl font-light">Protocol Complete.</p>
-                    <p className="text-sm mt-2">Add bonus tasks to execute.</p>
-                  </div>
-                )}
-              </section>
-
-              <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-40">
-                <TaskInput onAdd={addTask} />
+              <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center">
+                <ArrowRight className="text-[#F78320] w-5 h-5" />
               </div>
-            </>
-          ) : (
-            <div className="text-center mt-20">Mission not found.</div>
-          )}
-        </motion.div>
-      )}
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* 🚨 FAILURE / MERCY ALERTS */}
+      {/* 3. ACTIVE MISSION OVERLAY (Zoomed In) */}
       <AnimatePresence>
-        {missedDate && viewMode === "mission" && activeMission && (
-          <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+        {viewMode === "mission" && activeMission && (
+          <ActiveMissionView
+            mission={activeMission}
+            onClose={() => setViewMode("dashboard")}
+            onCompleteTask={completeTask}
+          />
+        )}
+      </AnimatePresence>
 
-            {/* MERCY ALERT */}
+      {/* 4. ALERTS (Mercy/Penalty) */}
+      <AnimatePresence>
+        {missedDate && activeMission && (
+          <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
             {showMercyAlert ? (
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                className="bg-[#1E1A17] border-2 border-blue-500 rounded-[2.5rem] p-10 max-w-md w-full text-center shadow-[0_20px_60px_rgba(59,130,246,0.3)] text-[#EFE0C8]"
+                className="bg-[#1E1A17] border-2 border-blue-500 rounded-[2.5rem] p-8 max-w-md w-full text-center"
               >
-                <Heart className="w-20 h-20 text-blue-500 mx-auto mb-6 animate-pulse" fill="currentColor" />
-                <h2 className="text-3xl font-black mb-2 text-white">MERCY APPLIED</h2>
-                <p className="text-lg opacity-60 mb-8 font-medium">You missed {missedDate}.</p>
-                <div className="bg-blue-500/10 p-6 rounded-2xl mb-8 border border-blue-500/20">
-                  <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-2">Protocol Status</p>
-                  <p className="text-lg font-bold text-white uppercase">One Life Consumed. {activeMission.config.bufferDays} Remaining.</p>
-                </div>
-                <button
-                  onClick={handleMercyAck}
-                  className="w-full py-5 rounded-[1.5rem] bg-blue-600 text-white font-bold text-lg hover:scale-95 transition-transform"
-                >
-                  CONTINUE MISSION
-                </button>
+                <Heart className="w-16 h-16 text-blue-500 mx-auto mb-4 animate-pulse" fill="currentColor" />
+                <h2 className="text-2xl font-black mb-2 text-white uppercase">Mercy Applied</h2>
+                <p className="text-white/60 mb-6">Buffer Day Consumed.</p>
+                <button onClick={() => { setMissedDate(null); setShowMercyAlert(false); }} className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold">ACKNOWLEDGE</button>
               </motion.div>
             ) : (
-
-              /* PENALTY ALERT */
-              <div className="bg-[#1E1A17] border-2 border-red-500 rounded-[2.5rem] p-10 max-w-md w-full text-center shadow-[0_20px_60px_rgba(220,38,38,0.3)] text-[#EFE0C8]">
-                <ShieldAlert className="w-20 h-20 text-red-500 mx-auto mb-6 animate-pulse" />
-                <h2 className="text-3xl font-black mb-2 text-white">PROTOCOL BREACH</h2>
-                <p className="text-lg opacity-60 mb-8 font-medium">You missed {missedDate}. No lives remaining.</p>
-
-                {activeMission.config.penaltyDetail && (
-                  <div className="bg-red-500/10 p-6 rounded-2xl mb-8 border border-red-500/20">
-                    <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-2">Required Penalty</p>
-                    <p className="text-xl font-bold text-white uppercase">{activeMission.config.penaltyDetail}</p>
-                  </div>
-                )}
-
-                <div className="space-y-4">
-                  <button
-                    onClick={handleRestart}
-                    className="w-full py-5 rounded-[1.5rem] bg-red-600 text-white font-bold text-lg hover:scale-95 transition-transform"
-                  >
-                    {activeMission.config.penaltyType === "Restart" ? "RESTART MISSION" : "I HAVE PAID THE PRICE"}
-                  </button>
-                  <button onClick={handlePenalty} className="w-full py-4 text-sm font-bold opacity-40 hover:opacity-100 uppercase tracking-widest">Mark Day As Failed</button>
-                </div>
-              </div>
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                className="bg-[#1E1A17] border-2 border-red-500 rounded-[2.5rem] p-8 max-w-md w-full text-center"
+              >
+                <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4 animate-pulse" />
+                <h2 className="text-2xl font-black mb-2 text-white uppercase">Protocol Breach</h2>
+                <p className="text-white/60 mb-6">No lives remaining.</p>
+                <button onClick={handlePenalty} className="w-full py-4 rounded-2xl bg-red-600 text-white font-bold">ACCEPT FAILURE</button>
+              </motion.div>
             )}
           </div>
         )}
