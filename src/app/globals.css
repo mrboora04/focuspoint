@@ -45,14 +45,13 @@ body {
   overflow-x: hidden;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  font-size: 18px;
-  /* Mobile Base Size */
+  /* Mobile Base Size Removed for System Default */
 }
 
 /* Landscape / Desktop Override */
 @media (min-width: 768px) {
   body {
-    font-size: 16px;
+    /* font-size: 16px; Removed for System Default */
   }
 }
 

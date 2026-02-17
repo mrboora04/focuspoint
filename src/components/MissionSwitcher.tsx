@@ -36,7 +36,7 @@ export default function MissionSwitcher({ missions, activeMissionId, onSwitch }:
 
     const activeMissionName = activeMissionId && missions[activeMissionId]
         ? missions[activeMissionId].config.name
-        : "Select Mission";
+        : "Select Challenge";
 
     return (
         <div className="relative z-50 flex justify-center mb-4" ref={dropdownRef}>
@@ -66,8 +66,8 @@ export default function MissionSwitcher({ missions, activeMissionId, onSwitch }:
                                             setIsOpen(false);
                                         }}
                                         className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left transition-colors ${activeMissionId === id
-                                                ? "bg-[#F78320]/10 text-[#F78320]"
-                                                : "hover:bg-[#252525]/5 text-[#252525]"
+                                            ? "bg-[#F78320]/10 text-[#F78320]"
+                                            : "hover:bg-[#252525]/5 text-[#252525]"
                                             }`}
                                     >
                                         <span className="text-sm font-medium truncate">{data.config.name}</span>
@@ -75,7 +75,7 @@ export default function MissionSwitcher({ missions, activeMissionId, onSwitch }:
                                     </button>
                                 ))
                             ) : (
-                                <div className="px-3 py-2 text-xs text-[#252525]/40 text-center">No missions found</div>
+                                <div className="px-3 py-2 text-xs text-[#252525]/40 text-center">No challenges found</div>
                             )}
                         </div>
 
@@ -84,7 +84,7 @@ export default function MissionSwitcher({ missions, activeMissionId, onSwitch }:
                         <Link href="/new-challenge" onClick={() => setIsOpen(false)}>
                             <div className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[#F78320] hover:bg-[#F78320]/5 transition-colors cursor-pointer">
                                 <Plus className="w-4 h-4" />
-                                <span className="text-xs font-bold">Create New Mission</span>
+                                <span className="text-xs font-bold">Create New Challenge</span>
                             </div>
                         </Link>
                     </motion.div>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Dashboard from "@/components/Dashboard";
 import ActiveMissionView from "@/components/ActiveMissionView";
 import SplashScreen from "@/components/SplashScreen";
+import TapCounter from "@/components/TapCounter";
 import { motion, AnimatePresence } from "framer-motion";
 import confetti from "canvas-confetti";
 import { Heart, ShieldAlert, ArrowRight } from "lucide-react";
@@ -17,6 +18,14 @@ interface Task {
   status: "pending" | "completed";
 }
 
+interface TapTarget {
+  id: string;
+  title: string;
+  target: number;
+  count: number;
+  totalTime?: number;
+}
+
 interface MissionData {
   id: string;
   config: {
@@ -26,11 +35,13 @@ interface MissionData {
     startDate: string;
     dailyHabits?: string[];
     penaltyType?: string;
-    penaltyDetail?: string;
+    penaltyDetail?: string; // e.g. "Donate $50"
     bufferDays?: number; // MERCY
+    frequency?: "daily" | "selected";
+    selectedDays?: number[]; // 0=Sun, 6=Sat
   };
   tasks: Task[];
-  history: { [date: string]: "completed" | "failed" | "skipped" | undefined };
+  history: { [date: string]: "completed" | "failed" | "skipped" | "rest" | undefined };
   dailyLog: { [date: string]: { tasks: any[] } };
   todayScore: number;
   scoreDate: string;
@@ -39,19 +50,22 @@ interface MissionData {
 interface AppState {
   activeMissionId: string | null;
   missions: { [id: string]: MissionData };
+  tapTargets: { [id: string]: TapTarget };
 }
 
 const STORAGE_KEY = "focuspoint_v1";
 
 const INITIAL_STATE: AppState = {
   activeMissionId: null,
-  missions: {}
+  missions: {},
+  tapTargets: {}
 };
 
 export default function Home() {
   const router = useRouter();
   const [state, setState] = useState<AppState>(INITIAL_STATE);
-  const [viewMode, setViewMode] = useState<"dashboard" | "mission">("dashboard");
+  const [viewMode, setViewMode] = useState<"dashboard" | "mission" | "tap">("dashboard");
+  const [activeTapId, setActiveTapId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [missedDate, setMissedDate] = useState<string | null>(null);
@@ -60,7 +74,12 @@ export default function Home() {
   // 1. LOAD STATE & THEME
   useEffect(() => {
     const savedState = localStorage.getItem(STORAGE_KEY);
-    if (savedState) setState(JSON.parse(savedState));
+    if (savedState) {
+      const parsed = JSON.parse(savedState);
+      // Migration/Safety check for new field
+      if (!parsed.tapTargets) parsed.tapTargets = {};
+      setState(parsed);
+    }
 
     const savedTheme = localStorage.getItem("theme") || "light";
     document.documentElement.setAttribute("data-theme", savedTheme);
@@ -92,11 +111,25 @@ export default function Home() {
     checkDate.setHours(0, 0, 0, 0);
     let foundMissed = null;
 
+    // Check for missed days
     while (checkDate < today) {
       const dateStr = checkDate.toISOString().split('T')[0];
+      const dayOfWeek = checkDate.getDay();
+
+      // Respect frequency for missed days
+      const isScheduledDay = activeMission.config.frequency === "selected"
+        ? activeMission.config.selectedDays?.includes(dayOfWeek)
+        : true;
+
       if (!activeMission.history[dateStr] && dateStr !== activeMission.scoreDate) {
-        foundMissed = dateStr;
-        break;
+        if (isScheduledDay) {
+          foundMissed = dateStr;
+          break; // Found a failure
+        } else {
+          // It was a rest day, mark it as such to avoid checking again
+          // But we can't mutate state in loop directly, we rely on the final update
+          // Actually, let's just ignore if it's not scheduled.
+        }
       }
       checkDate.setDate(checkDate.getDate() + 1);
     }
@@ -116,20 +149,35 @@ export default function Home() {
       }
     }
 
+    // New Day Generation
     if (activeMission.scoreDate !== todayStr) {
-      const habits = activeMission.config.dailyHabits || [];
-      const autoTasks: Task[] = habits.map((habit, idx) => ({
-        id: Date.now() + idx,
-        title: habit,
-        priority: "High",
-        status: "pending"
-      }));
+      const dayOfWeek = today.getDay();
+      const isScheduledDay = activeMission.config.frequency === "selected"
+        ? activeMission.config.selectedDays?.includes(dayOfWeek)
+        : true;
 
-      missionUpdates = {
-        todayScore: 0,
-        scoreDate: todayStr,
-        tasks: [...autoTasks, ...activeMission.tasks.filter(t => t.status === "pending")]
-      };
+      if (isScheduledDay) {
+        const habits = activeMission.config.dailyHabits || [];
+        const autoTasks: Task[] = habits.map((habit, idx) => ({
+          id: Date.now() + idx,
+          title: habit,
+          priority: "High",
+          status: "pending"
+        }));
+
+        missionUpdates = {
+          todayScore: 0,
+          scoreDate: todayStr,
+          tasks: [...autoTasks, ...activeMission.tasks.filter(t => t.status === "pending")]
+        };
+      } else {
+        // Rest Day
+        missionUpdates = {
+          scoreDate: todayStr, // Update date so we don't check again
+          todayScore: 0,
+          // Keep pending tasks? Or clear? Let's keep them.
+        };
+      }
     }
 
     if (Object.keys(missionUpdates).length > 0) {
@@ -159,6 +207,66 @@ export default function Home() {
       setViewMode("mission"); // Zoom In
     }
   };
+
+  // TAP TARGET HANDLERS
+  const handleOpenTapTarget = (id: string) => {
+    setActiveTapId(id);
+    setViewMode("tap");
+  };
+
+  const handleCreateTapTarget = () => {
+    // For MVP: Creating a default one. In real app, open a modal.
+    const id = Date.now().toString();
+    const newTarget: TapTarget = {
+      id,
+      title: "Power Calls",
+      target: 100,
+      count: 0
+    };
+    setState(prev => ({
+      ...prev,
+      tapTargets: { ...prev.tapTargets, [id]: newTarget }
+    }));
+    handleOpenTapTarget(id);
+  };
+
+  const updateTapTarget = (stats: any) => {
+    if (!activeTapId) return;
+    // Ideally update count or mark complete
+    setState(prev => ({
+      ...prev,
+      tapTargets: {
+        ...prev.tapTargets,
+        [activeTapId]: {
+          ...prev.tapTargets[activeTapId],
+          count: stats.totalTaps // or cumulative?
+        }
+      }
+    }));
+    // Show summary or whatever? content is inside TapCounter currently
+    // For now, just close it after delay? Or keep it open.
+    // The TapCounter component handles the "Complete" view. 
+    // We might want to save the "session" to history here.
+  };
+
+  const addTask = (title: string) => {
+    if (!activeMission) return;
+
+    // 1. Add to current tasks
+    const newTask: Task = { id: Date.now(), title, priority: "High", status: "pending" };
+
+    // 2. Add to Daily Habits (PERMANENT)
+    const newHabits = [...(activeMission.config.dailyHabits || [])];
+    if (!newHabits.includes(title)) {
+      newHabits.push(title);
+    }
+
+    updateActiveMission({
+      tasks: [newTask, ...activeMission.tasks],
+      config: { ...activeMission.config, dailyHabits: newHabits }
+    });
+  };
+
 
   const completeTask = (id: number, points: number) => {
     if (missedDate && !showMercyAlert || !activeMission) return;
@@ -238,47 +346,21 @@ export default function Home() {
       {/* 1. DASHBOARD LAYER (Always mounted, scales down when zoomed out) */}
       <motion.div
         animate={{
-          scale: viewMode === "mission" ? 0.9 : 1,
-          opacity: viewMode === "mission" ? 0.5 : 1,
-          filter: viewMode === "mission" ? "blur(10px)" : "blur(0px)"
+          scale: viewMode !== "dashboard" ? 0.9 : 1,
+          opacity: viewMode !== "dashboard" ? 0.5 : 1,
+          filter: viewMode !== "dashboard" ? "blur(10px)" : "blur(0px)"
         }}
         transition={{ duration: 0.5 }}
         className="h-full"
       >
-        <Dashboard state={state} onSelectMission={handleSelectMission} />
+        <Dashboard
+          state={state}
+          onSelectMission={handleSelectMission}
+          onSelectTapTarget={handleOpenTapTarget}
+          onCreateTapTarget={handleCreateTapTarget}
+        />
       </motion.div>
 
-      {/* 2. DYNAMIC ISLAND (Bottom Trigger) */}
-      <AnimatePresence>
-        {activeMission && viewMode === "dashboard" && !showSplash && (
-          <motion.div
-            initial={{ y: 200, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 200, opacity: 0 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[90%] max-w-sm"
-          >
-            <motion.button
-              onClick={() => setViewMode("mission")}
-              whileTap={{ scale: 0.95 }}
-              whileHover={{ scale: 1.02 }}
-              className="w-full bg-[#1E1A17]/90 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-4 flex items-center justify-between shadow-2xl shadow-black/20"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[#F78320] rounded-full flex items-center justify-center font-bold text-white text-lg">
-                  {activeMission.todayScore}
-                </div>
-                <div className="text-left">
-                  <p className="text-[#EFE0C8] font-black uppercase text-sm">{activeMission.config.name}</p>
-                  <p className="text-white/40 text-xs font-bold uppercase tracking-wider">Tap to Execute</p>
-                </div>
-              </div>
-              <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center">
-                <ArrowRight className="text-[#F78320] w-5 h-5" />
-              </div>
-            </motion.button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* 3. ACTIVE MISSION OVERLAY (Zoomed In) */}
       <AnimatePresence>
@@ -287,11 +369,24 @@ export default function Home() {
             mission={activeMission}
             onClose={() => setViewMode("dashboard")}
             onCompleteTask={completeTask}
+            onAddTask={addTask}
           />
         )}
       </AnimatePresence>
 
-      {/* 4. ALERTS (Mercy/Penalty) */}
+      {/* 4. TAP COUNTER OVERLAY */}
+      <AnimatePresence>
+        {viewMode === "tap" && activeTapId && state.tapTargets[activeTapId] && (
+          <TapCounter
+            target={state.tapTargets[activeTapId].target}
+            title={state.tapTargets[activeTapId].title}
+            onClose={() => setViewMode("dashboard")}
+            onComplete={updateTapTarget}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 5. ALERTS (Mercy/Penalty) */}
       <AnimatePresence>
         {missedDate && activeMission && (
           <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">

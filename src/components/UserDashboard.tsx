@@ -103,7 +103,7 @@ export default function UserDashboard({ state }: UserDashboardProps) {
                                         <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
                                             <Target className="w-5 h-5" />
                                         </div>
-                                        <span className="font-medium text-[#252525]/80">Missions Active</span>
+                                        <span className="font-medium text-[#252525]/80">Active Challenges</span>
                                     </div>
                                     <span className="text-xl font-bold text-[#252525]">{stats.missionsCount}</span>
                                 </div>

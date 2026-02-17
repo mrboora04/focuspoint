@@ -8,9 +8,11 @@ import confetti from "canvas-confetti";
 interface DashboardProps {
     state: any;
     onSelectMission: (id: string) => void;
+    onSelectTapTarget?: (id: string) => void;
+    onCreateTapTarget?: () => void;
 }
 
-export default function Dashboard({ state, onSelectMission }: DashboardProps) {
+export default function Dashboard({ state, onSelectMission, onSelectTapTarget, onCreateTapTarget }: DashboardProps) {
     const [stats, setStats] = useState({ totalPoints: 0, missionsCount: 0, activeStreak: 0 });
     const [heatmap, setHeatmap] = useState<boolean[]>([]);
     const [theme, setTheme] = useState("light");
@@ -144,74 +146,108 @@ export default function Dashboard({ state, onSelectMission }: DashboardProps) {
                 </motion.div>
             </div>
 
-            {/* MISSIONS GRID */}
-            <div>
-                <div className="flex items-center justify-between mb-6 px-2">
-                    <h2 className="text-2xl font-black tracking-tight text-theme-text">Active Missions</h2>
-                    <motion.button
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => onSelectMission("new")}
-                        className="text-xs font-bold text-[#F78320] border-2 border-[#F78320]/20 px-5 py-2 rounded-full hover:bg-[#F78320] hover:text-white transition-all shadow-sm hover:shadow-[#F78320]/20"
-                    >
-                        + NEW MISSION
-                    </motion.button>
+            {/* MISSIONS & TAP TARGETS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* 1. MISSIONS */}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-2">
+                        <h2 className="text-xl font-black tracking-tight text-theme-text uppercase">Challenges</h2>
+                        <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => onSelectMission("new")}
+                            className="text-[10px] font-bold text-[#F78320] border border-[#F78320]/20 px-3 py-1 rounded-full hover:bg-[#F78320] hover:text-white transition-all"
+                        >
+                            + NEW
+                        </motion.button>
+                    </div>
+
+                    <div className="space-y-4">
+                        {activeMissions.length > 0 ? (
+                            activeMissions.map((mission) => {
+                                const startDate = new Date(mission.config.startDate);
+                                const now = new Date();
+                                const diffTime = Math.abs(now.getTime() - startDate.getTime());
+                                const dayNumber = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                const progress = Math.min(100, (dayNumber / mission.config.duration) * 100);
+
+                                return (
+                                    <motion.div
+                                        key={mission.id}
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => onSelectMission(mission.id)}
+                                        className="bg-theme-card p-6 rounded-[2rem] border border-theme-border cursor-pointer hover:bg-theme-bg/50 transition-all relative overflow-hidden"
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h3 className="text-xl font-black text-theme-text tracking-tight">{mission.config.name}</h3>
+                                            <ArrowRight className="w-5 h-5 text-theme-text opacity-20" />
+                                        </div>
+                                        <p className="text-xs text-theme-text opacity-40 mb-4 font-bold uppercase tracking-widest">
+                                            Day {dayNumber} / {mission.config.duration}
+                                        </p>
+
+                                        {/* Mini Progress Bar */}
+                                        <div className="w-full bg-black/10 h-2 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-[#F78320]"
+                                                style={{ width: `${progress}%` }}
+                                            />
+                                        </div>
+                                    </motion.div>
+                                );
+                            })
+                        ) : (
+                            <div className="text-center py-10 bg-theme-card/30 rounded-[2rem] border-2 border-dashed border-theme-border">
+                                <p className="text-theme-text opacity-40 font-medium text-sm">No active challenges.</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {activeMissions.length > 0 ? (
-                        activeMissions.map((mission) => {
-                            const startDate = new Date(mission.config.startDate);
-                            const now = new Date();
-                            const diffTime = Math.abs(now.getTime() - startDate.getTime());
-                            const dayNumber = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            const progress = Math.min(100, (dayNumber / mission.config.duration) * 100);
+                {/* 2. TAP TARGETS */}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between px-2">
+                        <h2 className="text-xl font-black tracking-tight text-theme-text uppercase">Tap Targets</h2>
+                        <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={onCreateTapTarget}
+                            className="text-[10px] font-bold text-[#F78320] border border-[#F78320]/20 px-3 py-1 rounded-full hover:bg-[#F78320] hover:text-white transition-all"
+                        >
+                            + NEW
+                        </motion.button>
+                    </div>
 
-                            return (
+                    <div className="space-y-4">
+                        {state.tapTargets && Object.keys(state.tapTargets).length > 0 ? (
+                            Object.values(state.tapTargets).map((target: any) => (
                                 <motion.div
-                                    key={mission.id}
-                                    whileHover={{ scale: 1.02, y: -4 }}
+                                    key={target.id}
+                                    whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
-                                    onClick={() => onSelectMission(mission.id)}
-                                    className="bg-theme-card backdrop-blur-xl p-8 rounded-[2.5rem] border border-theme-border cursor-pointer group hover:bg-theme-bg/50 transition-all shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-xl relative overflow-hidden"
+                                    onClick={() => onSelectTapTarget?.(target.id)}
+                                    className="bg-theme-card p-6 rounded-[2rem] border border-theme-border cursor-pointer hover:bg-theme-bg/50 transition-all flex items-center justify-between"
                                 >
-                                    <div className="absolute top-6 right-6 p-2 rounded-full bg-theme-bg opacity-0 group-hover:opacity-100 transition-all transform translate-x-4 group-hover:translate-x-0">
-                                        <ArrowRight className="w-5 h-5 text-[#F78320]" />
+                                    <div>
+                                        <h3 className="text-lg font-black text-theme-text tracking-tight">{target.title}</h3>
+                                        <p className="text-xs text-theme-text opacity-40 font-bold uppercase tracking-widest">
+                                            {target.count} / {target.target}
+                                        </p>
                                     </div>
-
-                                    <h3 className="text-2xl font-black text-theme-text mb-1 tracking-tight">{mission.config.name}</h3>
-                                    <p className="text-xs text-theme-text opacity-40 mb-6 font-bold uppercase tracking-widest">
-                                        Day <span className="text-[#F78320] text-sm">{dayNumber}</span> of {mission.config.duration}
-                                    </p>
-
-                                    {/* Mini Progress Bar */}
-                                    <div className="w-full bg-black/10 h-3 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-[#F78320]"
-                                            style={{ width: `${progress}%` }}
-                                        />
-                                    </div>
-                                    <div className="mt-3 flex justify-between text-[10px] text-theme-text opacity-30 font-bold uppercase tracking-wider">
-                                        <span>{mission.config.dailyHabits?.length || 0} Habits</span>
-                                        <span>{Math.round(progress)}% Done</span>
+                                    <div className="w-10 h-10 rounded-full bg-[#EFE0C8] flex items-center justify-center">
+                                        <Target className="w-5 h-5 text-[#F78320]" />
                                     </div>
                                 </motion.div>
-                            );
-                        })
-                    ) : (
-                        <div className="col-span-full text-center py-16 bg-theme-card/50 rounded-[2.5rem] border-2 border-dashed border-theme-border">
-                            <p className="text-theme-text opacity-40 font-medium">No active missions found.</p>
-                            <button
-                                onClick={() => onSelectMission("new")}
-                                className="mt-3 text-[#F78320] font-bold hover:underline"
-                            >
-                                Start your first mission
-                            </button>
-                        </div>
-                    )}
+                            ))
+                        ) : (
+                            <div className="text-center py-10 bg-theme-card/30 rounded-[2rem] border-2 border-dashed border-theme-border">
+                                <p className="text-theme-text opacity-40 font-medium text-sm">No targets active.</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* HEATMAP */}
+            {/* HEATMAP - Full Width Bottom */}
             <div className="bg-theme-card p-8 rounded-[2.5rem] border border-theme-border shadow-sm">
                 <h2 className="text-lg font-black text-theme-text mb-6 flex items-center gap-3">
                     <Calendar className="w-5 h-5 text-[#F78320]" strokeWidth={2} />
