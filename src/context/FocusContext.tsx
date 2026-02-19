@@ -2,8 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import confetti from "canvas-confetti";
+import { supabase } from "@/lib/supabase";
 
-// --- TYPES (Lifted from page.tsx) ---
+// --- TYPES ---
 export interface Task {
     id: number;
     title: string;
@@ -12,17 +13,20 @@ export interface Task {
 }
 
 export interface TapTarget {
-    id: string;
+    id: string; // text in DB
     title: string;
-    target: number;
-    count: number;
+    target: number; // mapped to target_count
+    count: number; // mapped to current_count
+    theme: string;
+    icon: string;
     totalTime?: number;
+    // DB also has: user_id, is_completed, created_at, data (jsonb)
 }
 
 export interface MissionData {
     id: string;
     config: {
-        name: string;
+        name: string; // mapped to title
         duration: number;
         dailyTarget: number;
         startDate: string;
@@ -31,19 +35,30 @@ export interface MissionData {
         penaltyDetail?: string;
         bufferDays?: number;
         frequency?: "daily" | "selected";
-        selectedDays?: number[]; // 0=Sun, 6=Sat
+        selectedDays?: number[];
     };
     tasks: Task[];
     history: { [date: string]: "completed" | "failed" | "skipped" | "rest" | undefined };
     dailyLog: { [date: string]: { tasks: any[] } };
-    todayScore: number;
+    todayScore: number; // mapped to points
     scoreDate: string;
+}
+
+export interface UserProfile {
+    user_id: string;
+    focus_points: number;
+    current_streak: number;
+    best_streak: number;
+    missions_completed: number;
+    missions_failed: number;
+    last_active: string;
 }
 
 export interface AppState {
     activeMissionId: string | null;
     missions: { [id: string]: MissionData };
     tapTargets: { [id: string]: TapTarget };
+    userProfile: UserProfile | null;
 }
 
 interface FocusContextType {
@@ -52,14 +67,15 @@ interface FocusContextType {
     activeTapId: string | null;
     missedDate: string | null;
     showMercyAlert: boolean;
-    viewMode: "dashboard" | "mission" | "tap"; // Kept for overlay logic
+    viewMode: "dashboard" | "mission" | "tap" | "tap_config";
     theme: string;
+    recentEvents: any[];
 
     // Actions
     setActiveMissionId: (id: string | null) => void;
     setActiveTapId: (id: string | null) => void;
-    setViewMode: (mode: "dashboard" | "mission" | "tap") => void;
-    createTapTarget: () => void;
+    setViewMode: (mode: "dashboard" | "mission" | "tap" | "tap_config") => void;
+    createTapTarget: (config?: { title: string; target: number; theme: string; icon: string }) => void;
     updateTapTarget: (id: string, count: number) => void;
     addTask: (title: string) => void;
     completeTask: (id: number, points: number) => void;
@@ -72,49 +88,204 @@ interface FocusContextType {
 
 const FocusContext = createContext<FocusContextType | undefined>(undefined);
 
-const STORAGE_KEY = "focuspoint_v1";
+// const STORAGE_KEY = "focuspoint_v1"; // REMOVED
 
 const INITIAL_STATE: AppState = {
     activeMissionId: null,
     missions: {},
-    tapTargets: {}
+    tapTargets: {},
+    userProfile: null
 };
 
 export function FocusProvider({ children }: { children: ReactNode }) {
     const [state, setState] = useState<AppState>(INITIAL_STATE);
-    const [viewMode, setViewMode] = useState<"dashboard" | "mission" | "tap">("dashboard");
+    const [viewMode, setViewMode] = useState<"dashboard" | "mission" | "tap" | "tap_config">("dashboard");
     const [activeTapId, setActiveTapId] = useState<string | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const [missedDate, setMissedDate] = useState<string | null>(null);
     const [showMercyAlert, setShowMercyAlert] = useState(false);
     const [theme, setTheme] = useState("light");
+    const [userId, setUserId] = useState<string>("anon_user"); // Default for now, or auth.uid() if auth is set up
+
+    const [recentEvents, setRecentEvents] = useState<any[]>([]);
 
     // 1. DATA PERSISTENCE & THEME LOAD
     useEffect(() => {
-        const savedState = localStorage.getItem(STORAGE_KEY);
-        if (savedState) {
-            const parsed = JSON.parse(savedState);
-            if (!parsed.tapTargets) parsed.tapTargets = {};
-            setState(parsed);
-        }
-        const savedTheme = localStorage.getItem("theme") || "light";
-        setTheme(savedTheme);
-        document.documentElement.setAttribute("data-theme", savedTheme);
-        setIsLoaded(true);
+        const init = async () => {
+            console.log("FocusContext: Initializing...");
+            // Theme
+            const savedTheme = localStorage.getItem("theme") || "light";
+            setTheme(savedTheme);
+            document.documentElement.setAttribute("data-theme", savedTheme);
+
+            // Auth (Optional/Simulated for now if Anon)
+            // const { data: { user } } = await supabase.auth.getUser();
+            // if (user) setUserId(user.id);
+            // else: use anon_user or generate a device ID. 
+            // For this request, we'll assume a fixed user for simplicity if auth isn't mandated, 
+            // OR use a quick localStorage ID to persist identity across sessions if no auth.
+            let currentUserId = localStorage.getItem("focuspoint_device_id");
+            if (!currentUserId) {
+                currentUserId = crypto.randomUUID();
+                localStorage.setItem("focuspoint_device_id", currentUserId);
+            }
+            setUserId(currentUserId);
+
+            // Load Data
+            await loadFromSupabase(currentUserId);
+
+            // Log App Opened
+            supabase.from('events').insert({
+                user_id: currentUserId,
+                event_type: 'app_opened'
+            }).then();
+
+            setIsLoaded(true);
+        };
+        init();
     }, []);
 
-    useEffect(() => {
-        if (isLoaded) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const loadFromSupabase = async (uid: string) => {
+        console.log("Loading data from Supabase for user:", uid);
+
+        // 1. User Profile
+        const { data: profileData, error: profileError } = await supabase
+            .from('user_profile')
+            .select('*')
+            .eq('user_id', uid)
+            .single();
+
+        if (profileError && profileError.code !== 'PGRST116') { // Ignore 'row not found' for new users
+            console.error("Error loading profile:", profileError);
         }
-    }, [state, isLoaded]);
+
+        let userProfile: UserProfile | null = profileData || null;
+
+        // If no profile, create one
+        if (!userProfile) {
+            console.log("No profile found, creating new profile...");
+            const { data: newProfile, error: createError } = await supabase
+                .from('user_profile')
+                .insert({ user_id: uid, last_active: new Date().toISOString() })
+                .select()
+                .single();
+
+            if (createError) console.error("Error creating profile:", createError);
+            else userProfile = newProfile;
+        }
+
+        // 2. Missions
+        const { data: missionsData, error: missionsError } = await supabase
+            .from('missions')
+            .select('*')
+            .eq('user_id', uid);
+
+        if (missionsError) console.error("Error loading missions:", missionsError);
+        else console.log("Missions loaded:", missionsData?.length || 0);
+
+        const loadedMissions: { [id: string]: MissionData } = {};
+        if (missionsData) {
+            missionsData.forEach((row: any) => {
+                const mission: MissionData = {
+                    ...row.data,
+                    id: row.id,
+                    todayScore: row.points,
+                    config: {
+                        ...row.data.config,
+                        name: row.title
+                    }
+                };
+                loadedMissions[row.id] = mission;
+            });
+        }
+
+        // 3. Tap Targets
+        const { data: targetsData, error: targetsError } = await supabase
+            .from('tap_targets')
+            .select('*')
+            .eq('user_id', uid);
+
+        if (targetsError) console.error("Error loading targets:", targetsError);
+        else console.log("Targets loaded:", targetsData?.length || 0);
+
+        const loadedTargets: { [id: string]: TapTarget } = {};
+        if (targetsData) {
+            targetsData.forEach((row: any) => {
+                const target: TapTarget = {
+                    id: row.id,
+                    title: row.title,
+                    count: row.current_count,
+                    target: row.target_count,
+                    theme: row.data?.theme || "ember",
+                    icon: row.data?.icon || "target",
+                };
+                loadedTargets[row.id] = target;
+            });
+        }
+
+        // 4. Recent Events
+        const { data: eventsData, error: eventsError } = await supabase
+            .from('events')
+            .select('*')
+            .eq('user_id', uid)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (eventsError) console.error("Error loading events:", eventsError);
+        else console.log("Events loaded:", eventsData?.length || 0);
+
+        if (eventsData) {
+            setRecentEvents(eventsData);
+        }
+
+        setState({
+            activeMissionId: null,
+            missions: loadedMissions,
+            tapTargets: loadedTargets,
+            userProfile
+        });
+        console.log("State updated from Supabase.");
+    };
+
+    const logEvent = async (type: string, value?: number, metadata?: any) => {
+        const newEvent = {
+            id: crypto.randomUUID(), // Temp ID for UI
+            user_id: userId,
+            event_type: type,
+            event_value: value,
+            metadata,
+            created_at: new Date().toISOString()
+        };
+
+        // Optimistic UI
+        setRecentEvents(prev => [newEvent, ...prev].slice(0, 10));
+
+        // Supabase
+        const { data, error } = await supabase.from('events').insert({
+            user_id: userId,
+            event_type: type,
+            event_value: value,
+            metadata
+        }).select();
+
+        if (error) console.error("Error logging event:", error);
+        else console.log("Event logged:", data);
+    };
+
+    // No more localStorage effect for state!
 
     const activeMission = state.activeMissionId ? state.missions[state.activeMissionId] : null;
 
     // 2. AUTO-POPULATE LOGIC (Runs daily)
+    // Needs update to sync to Supabase
     useEffect(() => {
-        if (!activeMission) return;
+        if (!activeMission || !isLoaded) return;
+        // Same logic as before, but calls dbUpdate instead of just setState
+        checkDailyLogic();
+    }, [state.activeMissionId, isLoaded]);
 
+    const checkDailyLogic = () => {
+        if (!activeMission) return;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayStr = today.toISOString().split('T')[0];
@@ -126,6 +297,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         let foundMissed = null;
 
         // Check history for missed days
+        // ... (Logic identical to previous) ...
         while (checkDate < today) {
             const dateStr = checkDate.toISOString().split('T')[0];
             const dayOfWeek = checkDate.getDay();
@@ -145,14 +317,12 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         if (foundMissed) {
             const remainingBuffer = activeMission.config.bufferDays || 0;
             if (remainingBuffer > 0) {
-                // Mercy
                 const newHistory = { ...activeMission.history, [foundMissed]: "skipped" as const };
                 const newConfig = { ...activeMission.config, bufferDays: remainingBuffer - 1 };
                 updateActiveMission({ history: newHistory, config: newConfig });
                 setMissedDate(foundMissed);
                 setShowMercyAlert(true);
             } else {
-                // Penalty
                 setMissedDate(foundMissed);
                 setShowMercyAlert(false);
             }
@@ -174,7 +344,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                     status: "pending"
                 }));
                 missionUpdates = {
-                    todayScore: 0,
+                    todayScore: 0, // Reset DB points
                     scoreDate: todayStr,
                     tasks: [...autoTasks, ...activeMission.tasks.filter(t => t.status === "pending")]
                 };
@@ -186,29 +356,70 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         if (Object.keys(missionUpdates).length > 0) {
             updateActiveMission(missionUpdates);
         }
-    }, [state.activeMissionId, isLoaded]); // Check on load/select
+    }
+
 
     // ACTIONS
-    const updateActiveMission = (updates: Partial<MissionData>) => {
+    const updateActiveMission = async (updates: Partial<MissionData>) => {
         if (!state.activeMissionId) return;
+        const mid = state.activeMissionId;
+        const currentMission = state.missions[mid];
+
+        // Optimistic Update
+        const updatedMission = { ...currentMission, ...updates };
         setState(prev => ({
             ...prev,
             missions: {
                 ...prev.missions,
-                [prev.activeMissionId!]: {
-                    ...prev.missions[prev.activeMissionId!],
-                    ...updates
-                }
+                [mid]: updatedMission
             }
         }));
+
+        // Supabase Sync
+        // Prepare relational cols
+        const title = updatedMission.config.name;
+        const points = updatedMission.todayScore;
+        const status = 'active'; // Logic for completed/failed? 
+        // We put remaining data in 'data' col
+
+        const { error } = await supabase.from('missions').upsert({
+            id: mid,
+            user_id: userId,
+            title,
+            points,
+            status,
+            data: updatedMission
+        });
+
+        if (error) console.error("Error updating mission:", error);
+        else console.log("Mission synced to Supabase:", mid);
     };
 
-    const addMission = (mission: MissionData) => {
+    const addMission = async (mission: MissionData) => {
+        // Optimistic
         setState(prev => ({
             ...prev,
             activeMissionId: mission.id,
             missions: { ...prev.missions, [mission.id]: mission }
         }));
+
+        // Supabase
+        const { data, error } = await supabase.from('missions').insert({
+            id: mission.id,
+            user_id: userId,
+            title: mission.config.name,
+            points: mission.todayScore,
+            status: 'active',
+            data: mission
+        }).select();
+
+        if (error) {
+            console.error("Error adding mission:", error);
+            // Rollback state? For now just log.
+        } else {
+            console.log("Mission added to Supabase:", data);
+            logEvent('mission_created', undefined, { mission_id: mission.id, title: mission.config.name });
+        }
     }
 
     const toggleTheme = () => {
@@ -218,23 +429,48 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         document.documentElement.setAttribute("data-theme", newTheme);
     };
 
-    const createTapTarget = () => {
+    const createTapTarget = async (config?: { title: string; target: number; theme: string; icon: string }) => {
         const id = Date.now().toString();
         const newTarget: TapTarget = {
             id,
-            title: "New Target",
-            target: 100,
-            count: 0
+            title: config?.title || "New Target",
+            target: config?.target || 100,
+            count: 0,
+            theme: config?.theme || "ember",
+            icon: config?.icon || "target"
         };
+        // Optimistic
         setState(prev => ({
             ...prev,
             tapTargets: { ...prev.tapTargets, [id]: newTarget }
         }));
         setActiveTapId(id);
         setViewMode("tap");
+
+        // Supabase
+        const { data, error } = await supabase.from('tap_targets').insert({
+            id,
+            user_id: userId,
+            title: newTarget.title,
+            current_count: 0,
+            target_count: 100,
+            is_completed: false,
+            data: newTarget
+        }).select();
+
+        if (error) {
+            console.error("Error creating tap target:", error);
+        } else {
+            console.log("Tap target created:", data);
+            logEvent('target_created', undefined, { target_id: id });
+        }
     };
 
-    const updateTapTarget = (id: string, count: number) => {
+    const updateTapTarget = async (id: string, count: number) => {
+        const target = state.tapTargets[id];
+        if (!target) return;
+
+        // Optimistic
         setState(prev => ({
             ...prev,
             tapTargets: {
@@ -242,12 +478,25 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                 [id]: { ...prev.tapTargets[id], count }
             }
         }));
+
+        // Supabase
+        const { error } = await supabase.from('tap_targets').update({
+            current_count: count,
+            is_completed: count >= target.target,
+            data: { ...target, count }
+        }).eq('id', id);
+
+        if (error) console.error("Error updating tap target:", error);
+        else console.log("Tap target updated:", id, count);
+
+        if (count >= target.target) {
+            logEvent('target_completed', undefined, { target_id: id, count });
+        }
     };
 
     const addTask = (title: string) => {
         if (!activeMission) return;
         const newTask: Task = { id: Date.now(), title, priority: "High", status: "pending" };
-        // Add to habits (permanent)
         const newHabits = [...(activeMission.config.dailyHabits || [])];
         if (!newHabits.includes(title)) newHabits.push(title);
 
@@ -257,7 +506,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    const completeTask = (id: number, points: number) => {
+    const completeTask = async (id: number, points: number) => {
         if (missedDate && !showMercyAlert || !activeMission) return;
         const task = activeMission.tasks.find(t => t.id === id);
         if (!task) return;
@@ -291,18 +540,33 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             newHistory[today] = "completed";
         }
 
-        updateActiveMission({
+        const updates = {
             todayScore: newScore,
-            tasks: activeMission.tasks.map(t => t.id === id ? { ...t, status: 'completed' } : t),
+            tasks: activeMission.tasks.map(t => t.id === id ? { ...t, status: 'completed' as const } : t),
             dailyLog: newLog,
             history: newHistory
-        });
+        };
+
+        await updateActiveMission(updates);
+        console.log("Task completed, points added:", points);
+
+        // Event
+        logEvent('mission_completed_task', points, { mission_id: activeMission.id, task_title: task.title });
+
+        // Check if Mission/Day Completed
+        if (newScore >= activeMission.config.dailyTarget && activeMission.todayScore < activeMission.config.dailyTarget) {
+            logEvent('mission_day_completed', undefined, { mission_id: activeMission.id, date: today });
+        }
     };
 
-    const handlePenalty = () => {
+    const handlePenalty = async () => {
         if (!missedDate || !activeMission) return;
         const newHistory = { ...activeMission.history, [missedDate]: "failed" as const };
-        updateActiveMission({ history: newHistory });
+        await updateActiveMission({ history: newHistory });
+        console.log("Penalty handled for date:", missedDate);
+
+        logEvent('mission_failed_day', undefined, { mission_id: activeMission.id, date: missedDate });
+
         setMissedDate(null);
     };
 
@@ -311,7 +575,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         setShowMercyAlert(false);
     };
 
-    const handleRestart = () => {
+    const handleRestart = async () => {
         if (!activeMission) return;
         const freshMission: MissionData = {
             ...activeMission,
@@ -321,10 +585,22 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             dailyLog: {},
             todayScore: 0
         };
+        // Optimistic
         setState(prev => ({
             ...prev,
             missions: { ...prev.missions, [activeMission.id]: freshMission }
         }));
+
+        // Supabase
+        const { error } = await supabase.from('missions').update({
+            points: 0,
+            status: 'active',
+            data: freshMission
+        }).eq('id', activeMission.id);
+
+        if (error) console.error("Error restarting mission:", error);
+        else console.log("Mission restarted:", activeMission.id);
+
         setMissedDate(null);
     };
 
@@ -349,7 +625,8 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                 acknowledgeMercy,
                 handleRestart,
                 toggleTheme,
-                addMission
+                addMission,
+                recentEvents
             }}
         >
             {children}

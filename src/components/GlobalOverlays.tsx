@@ -3,6 +3,7 @@
 import { useFocus } from "@/context/FocusContext";
 import ActiveMissionView from "@/components/ActiveMissionView";
 import TapCounter from "@/components/TapCounter";
+import TapTargetConfig from "@/components/TapTargetConfig";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, ShieldAlert } from "lucide-react";
 import SplashScreen from "@/components/SplashScreen";
@@ -21,6 +22,7 @@ export default function GlobalOverlays() {
         acknowledgeMercy,
         addTask,
         completeTask,
+        createTapTarget,
         updateTapTarget
     } = useFocus();
 
@@ -44,12 +46,24 @@ export default function GlobalOverlays() {
                 )}
             </AnimatePresence>
 
+            {/* TAP TARGET CONFIG */}
+            <AnimatePresence>
+                {viewMode === "tap_config" && (
+                    <TapTargetConfig
+                        onStart={(config) => createTapTarget(config)}
+                        onClose={() => setViewMode("dashboard")}
+                    />
+                )}
+            </AnimatePresence>
+
             {/* TAP COUNTER OVERLAY */}
             <AnimatePresence>
                 {viewMode === "tap" && activeTapId && state.tapTargets[activeTapId] && (
                     <TapCounter
                         target={state.tapTargets[activeTapId].target}
                         title={state.tapTargets[activeTapId].title}
+                        theme={state.tapTargets[activeTapId].theme}
+                        icon={state.tapTargets[activeTapId].icon}
                         onClose={() => setViewMode("dashboard")}
                         onComplete={(stats) => updateTapTarget(activeTapId, stats.totalTaps)}
                     />

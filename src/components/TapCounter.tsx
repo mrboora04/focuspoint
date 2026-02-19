@@ -4,15 +4,18 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { X, Trophy, Timer, Zap, RotateCcw } from "lucide-react";
 import Confetti from "canvas-confetti";
+import { THEMES, ICONS } from "./TapTargetConfig";
 
 interface TapCounterProps {
     target: number;
     title: string;
+    theme?: string;
+    icon?: string;
     onClose: () => void;
     onComplete: (stats: any) => void;
 }
 
-export default function TapCounter({ target, title, onClose, onComplete }: TapCounterProps) {
+export default function TapCounter({ target, title, theme = "ember", icon = "target", onClose, onComplete }: TapCounterProps) {
     const [count, setCount] = useState(0);
     const [startTime] = useState(Date.now());
     const [lastTapTime, setLastTapTime] = useState(Date.now());
@@ -25,6 +28,10 @@ export default function TapCounter({ target, title, onClose, onComplete }: TapCo
 
     // Cooldown duration (ms) - to prevent accidental double taps
     const COOLDOWN_MS = 300;
+
+    // Resolve Theme & Icon
+    const activeTheme = THEMES.find(t => t.id === theme) || THEMES[0];
+    const ActiveIcon = ICONS.find(i => i.id === icon)?.icon || Zap;
 
     // Calculate progress
     const progress = Math.min((count / target) * 100, 100);
@@ -70,7 +77,7 @@ export default function TapCounter({ target, title, onClose, onComplete }: TapCo
             particleCount: 150,
             spread: 100,
             origin: { y: 0.6 },
-            colors: ['#F78320', '#ffffff']
+            colors: [activeTheme.color, '#ffffff']
         });
 
         const totalTime = endTime - startTime;
@@ -104,8 +111,11 @@ export default function TapCounter({ target, title, onClose, onComplete }: TapCo
         >
             {/* Background Particles/Effect */}
             <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
-                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] bg-gradient-radial from-[#F78320] to-transparent transition-all duration-500`}
-                    style={{ transform: `scale(${0.5 + (progress / 100)}) translate(-50%, -50%)` }} />
+                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] bg-gradient-radial from-[var(--theme-color)] to-transparent transition-all duration-500`}
+                    style={{
+                        '--theme-color': activeTheme.color,
+                        transform: `scale(${0.5 + (progress / 100)}) translate(-50%, -50%)`
+                    } as any} />
             </div>
 
             {/* Header */}
@@ -115,7 +125,7 @@ export default function TapCounter({ target, title, onClose, onComplete }: TapCo
                 </button>
                 <div className="text-right">
                     <h2 className="font-black text-theme-text uppercase tracking-widest text-sm">{title}</h2>
-                    <p className="text-xs font-bold text-[#F78320]">{Math.round(progress)}% COMPLETE</p>
+                    <p className="text-xs font-bold" style={{ color: activeTheme.color }}>{Math.round(progress)}% COMPLETE</p>
                 </div>
             </div>
 
@@ -137,7 +147,7 @@ export default function TapCounter({ target, title, onClose, onComplete }: TapCo
                             cx="144"
                             cy="144"
                             r="130"
-                            stroke="#F78320"
+                            stroke={activeTheme.color}
                             strokeWidth="12"
                             fill="transparent"
                             strokeLinecap="round"
@@ -158,8 +168,9 @@ export default function TapCounter({ target, title, onClose, onComplete }: TapCo
                             }`}
                         disabled={count >= target}
                     >
-                        <span className="text-6xl font-black text-[#252525] tabular-nums">{count}</span>
-                        <span className="text-xs font-bold text-[#252525]/40 uppercase tracking-widest mt-2">Tap</span>
+                        <ActiveIcon className="w-12 h-12 mb-2 opacity-20" style={{ color: activeTheme.color }} />
+                        <span className="text-6xl font-black text-[#252525] tabular-nums leading-none">{count}</span>
+                        <span className="text-xs font-bold text-[#252525]/40 uppercase tracking-widest mt-1">Tap</span>
                     </motion.button>
                 </div>
 

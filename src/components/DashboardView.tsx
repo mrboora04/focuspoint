@@ -14,34 +14,10 @@ interface ActivityItem {
     time: string;
 }
 
-const MOCK_ACTIVITY: ActivityItem[] = [
-    {
-        id: "1",
-        type: "success",
-        title: "Completed mission \"Morning Focus\"",
-        detail: "+15 points",
-        points: 15,
-        time: "2 hours ago"
-    },
-    {
-        id: "2",
-        type: "streak",
-        title: "Streak increased to 7 days",
-        detail: "Personal best approaching",
-        time: "Yesterday"
-    },
-    {
-        id: "3",
-        type: "failure",
-        title: "Missed target \"No Phone After 10PM\"",
-        detail: "-5 points",
-        points: -5,
-        time: "3 days ago"
-    }
-];
+
 
 export default function DashboardView() {
-    const { state, createTapTarget } = useFocus();
+    const { state, createTapTarget, recentEvents, setViewMode } = useFocus();
     const router = useRouter();
 
     // CALCULATE STATS
@@ -50,7 +26,6 @@ export default function DashboardView() {
     let missionsActive = 0;
     let missionsDueToday = 0;
     let activeStreak = 0;
-    let bestStreak = 0;
 
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
@@ -81,20 +56,86 @@ export default function DashboardView() {
 
     const getActivityIcon = (type: string) => {
         switch (type) {
-            case "success": return <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-500" />;
-            case "streak": return <Flame className="w-3.5 h-3.5 md:w-4 md:h-4 text-orange-500" fill="currentColor" />;
-            case "failure": return <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 text-red-500" />;
+            case "mission_day_completed":
+            case "target_completed":
+                return <CheckCircle2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-500" />;
+            case "streak_increased":
+                return <Flame className="w-3.5 h-3.5 md:w-4 md:h-4 text-orange-500" fill="currentColor" />;
+            case "mission_failed_day":
+                return <AlertTriangle className="w-3.5 h-3.5 md:w-4 md:h-4 text-red-500" />;
             default: return <Activity className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-500" />;
         }
     };
 
     const getActivityColor = (type: string) => {
         switch (type) {
-            case "success": return "bg-emerald-500/10 border-emerald-500/20";
-            case "streak": return "bg-orange-500/10 border-orange-500/20";
-            case "failure": return "bg-red-500/10 border-red-500/20";
+            case "mission_day_completed":
+            case "target_completed":
+                return "bg-emerald-500/10 border-emerald-500/20";
+            case "streak_increased": return "bg-orange-500/10 border-orange-500/20";
+            case "mission_failed_day": return "bg-red-500/10 border-red-500/20";
             default: return "bg-gray-500/10 border-gray-500/20";
         }
+    };
+
+    const formatEvent = (event: any): ActivityItem => {
+        let title = "Activity";
+        let detail = "";
+        let points = event.event_value;
+
+        switch (event.event_type) {
+            case "mission_created":
+                title = `Started mission "${event.metadata?.title || 'Unknown'}"`;
+                detail = "New journey begun";
+                break;
+            case "mission_completed_task":
+                title = `Completed task "${event.metadata?.task_title}"`;
+                detail = `+${points} points`;
+                break;
+            case "mission_day_completed":
+                title = "Mission Day Completed";
+                detail = "Daily target reached";
+                break;
+            case "target_created":
+                title = "New Tap Target Created";
+                detail = "Ready to focus";
+                break;
+            case "target_completed":
+                title = "Tap Target Completed";
+                detail = `${event.metadata?.count} reps done`;
+                break;
+            case "app_opened":
+                title = "Focus Session Started";
+                detail = "Welcome back";
+                break;
+            case "mission_failed_day":
+                title = "Mission Failed";
+                detail = "Missed a day";
+                break;
+            default:
+                title = "Event Logged";
+                detail = event.event_type;
+        }
+
+        // Format time relative
+        const date = new Date(event.created_at);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        let timeStr = "";
+        if (diffMins < 1) timeStr = "Just now";
+        else if (diffMins < 60) timeStr = `${diffMins}m ago`;
+        else if (diffMins < 1440) timeStr = `${Math.floor(diffMins / 60)}h ago`;
+        else timeStr = `${Math.floor(diffMins / 1440)}d ago`;
+
+        return {
+            id: event.id,
+            type: event.event_type.includes('fail') ? 'failure' : event.event_type.includes('completed') ? 'success' : 'success',
+            title,
+            detail,
+            points,
+            time: timeStr
+        };
     };
 
     return (
@@ -167,7 +208,7 @@ export default function DashboardView() {
                 </motion.div>
             </div>
 
-            {/* 2. RECENT ACTIVITY (Limited) */}
+            {/* 2. RECENT ACTIVITY (Real) */}
             <div className="bg-theme-card p-4 md:p-6 rounded-2xl md:rounded-3xl border border-theme-border shadow-sm relative overflow-hidden">
                 <div className="flex items-center justify-between mb-4 md:mb-5">
                     <h2 className="text-xs md:text-sm font-black text-theme-text uppercase tracking-widest flex items-center gap-2 opacity-80">
@@ -177,38 +218,47 @@ export default function DashboardView() {
                 </div>
 
                 <div className="space-y-0 divide-y divide-theme-border/30">
-                    {MOCK_ACTIVITY.slice(0, 3).map((activity) => (
-                        <div key={activity.id} className="flex gap-3 md:gap-4 py-3 md:py-4 first:pt-0 last:pb-0 group">
-                            <div className="flex flex-col items-center pt-0.5 md:pt-1">
-                                <div className={`w-7 h-7 md:w-9 md:h-9 rounded-full flex items-center justify-center border ${getActivityColor(activity.type)} transition-colors`}>
-                                    {getActivityIcon(activity.type)}
-                                </div>
-                                <div className="w-px h-full bg-theme-border/50 my-1 group-last:hidden" />
-                            </div>
-                            <div className="flex-1">
-                                <div className="flex justify-between items-start">
-                                    <div className="pr-2">
-                                        <p className="text-sm md:text-base font-bold text-theme-text leading-tight mb-0.5 md:mb-1">
-                                            {activity.title}
-                                        </p>
-                                        <p className="text-[11px] md:text-xs text-theme-text opacity-50 font-medium leading-normal">
-                                            {activity.detail}
-                                        </p>
+                    {recentEvents.length > 0 ? (
+                        recentEvents.map((event) => {
+                            const activity = formatEvent(event);
+                            return (
+                                <div key={activity.id} className="flex gap-3 md:gap-4 py-3 md:py-4 first:pt-0 last:pb-0 group">
+                                    <div className="flex flex-col items-center pt-0.5 md:pt-1">
+                                        <div className={`w-7 h-7 md:w-9 md:h-9 rounded-full flex items-center justify-center border ${getActivityColor(activity.type)} transition-colors`}>
+                                            {getActivityIcon(event.event_type)}
+                                        </div>
+                                        <div className="w-px h-full bg-theme-border/50 my-1 group-last:hidden" />
                                     </div>
-                                    <div className="text-right shrink-0">
-                                        <span className="text-[9px] md:text-[10px] font-bold text-theme-text opacity-40 uppercase tracking-wide block mb-0.5">
-                                            {activity.time}
-                                        </span>
-                                        {activity.points && (
-                                            <span className={`text-[10px] md:text-xs font-bold ${activity.points > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                                                {activity.points > 0 ? '+' : ''}{activity.points}
-                                            </span>
-                                        )}
+                                    <div className="flex-1">
+                                        <div className="flex justify-between items-start">
+                                            <div className="pr-2">
+                                                <p className="text-sm md:text-base font-bold text-theme-text leading-tight mb-0.5 md:mb-1">
+                                                    {activity.title}
+                                                </p>
+                                                <p className="text-[11px] md:text-xs text-theme-text opacity-50 font-medium leading-normal">
+                                                    {activity.detail}
+                                                </p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <span className="text-[9px] md:text-[10px] font-bold text-theme-text opacity-40 uppercase tracking-wide block mb-0.5">
+                                                    {activity.time}
+                                                </span>
+                                                {activity.points && (
+                                                    <span className={`text-[10px] md:text-xs font-bold ${activity.points > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                        {activity.points > 0 ? '+' : ''}{activity.points}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            );
+                        })
+                    ) : (
+                        <div className="py-8 text-center opacity-40 text-sm font-medium">
+                            No recent activity recorded.
                         </div>
-                    ))}
+                    )}
                 </div>
             </div>
 
@@ -227,7 +277,7 @@ export default function DashboardView() {
 
                 <motion.button
                     whileTap={{ scale: 0.98 }}
-                    onClick={createTapTarget}
+                    onClick={() => setViewMode("tap_config")}
                     className="p-4 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-500/5 border border-blue-500/20 flex flex-col items-center justify-center gap-2 group hover:border-blue-500/40 transition-all"
                 >
                     <div className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
