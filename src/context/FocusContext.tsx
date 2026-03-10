@@ -3,6 +3,17 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import confetti from "canvas-confetti";
 import { supabase } from "@/lib/supabase";
+import type { ScheduleProfile } from "@/types/schedule";
+import type { CalendarEvent } from "@/lib/calendarIntegration";
+import NotificationToast from "@/components/NotificationToast";
+
+// Notification type
+export interface AppNotification {
+    id: string;
+    type: "success" | "warning" | "info" | "event";
+    title: string;
+    message: string;
+}
 
 // --- TYPES ---
 export interface Task {
@@ -59,6 +70,8 @@ export interface AppState {
     missions: { [id: string]: MissionData };
     tapTargets: { [id: string]: TapTarget };
     userProfile: UserProfile | null;
+    notifications: AppNotification[];
+    calendarEvents: CalendarEvent[];
 }
 
 interface FocusContextType {
@@ -67,14 +80,29 @@ interface FocusContextType {
     activeTapId: string | null;
     missedDate: string | null;
     showMercyAlert: boolean;
-    viewMode: "dashboard" | "mission" | "tap" | "tap_config";
+    viewMode: "dashboard" | "mission" | "tap" | "tap_config" | "schedule_agent";
     theme: string;
     recentEvents: any[];
+    // Notification helpers
+    addNotification: (notif: Omit<AppNotification, 'id'>) => void;
+    dismissNotification: (id: string) => void;
+
+    // Calendar
+    addCalendarEvents: (events: CalendarEvent[]) => void;
+    clearCalendarEvents: () => void;
+
+    scheduleProfile: ScheduleProfile | null;
+    studyBlockMissed: boolean;
+
+    // Navigation history for in-app back button
+    navHistory: string[];
+    pushNavHistory: (path: string) => void;
+    popNavHistory: () => string | undefined;
 
     // Actions
     setActiveMissionId: (id: string | null) => void;
     setActiveTapId: (id: string | null) => void;
-    setViewMode: (mode: "dashboard" | "mission" | "tap" | "tap_config") => void;
+    setViewMode: (mode: "dashboard" | "mission" | "tap" | "tap_config" | "schedule_agent") => void;
     createTapTarget: (config?: { title: string; target: number; theme: string; icon: string }) => void;
     updateTapTarget: (id: string, count: number) => void;
     addTask: (title: string) => void;
@@ -84,6 +112,10 @@ interface FocusContextType {
     handleRestart: () => void;
     toggleTheme: () => void;
     addMission: (mission: MissionData) => void;
+    saveScheduleProfile: (profile: ScheduleProfile) => Promise<void>;
+    deleteScheduleProfile: () => Promise<void>;
+    acknowledgeStudyMiss: () => void;
+    setStudyBlockMissed: (v: boolean) => void;
 }
 
 const FocusContext = createContext<FocusContextType | undefined>(undefined);
@@ -94,12 +126,16 @@ const INITIAL_STATE: AppState = {
     activeMissionId: null,
     missions: {},
     tapTargets: {},
-    userProfile: null
+    userProfile: null,
+    notifications: [],
+    calendarEvents: [],
 };
 
 export function FocusProvider({ children }: { children: ReactNode }) {
     const [state, setState] = useState<AppState>(INITIAL_STATE);
-    const [viewMode, setViewMode] = useState<"dashboard" | "mission" | "tap" | "tap_config">("dashboard");
+    const [viewMode, setViewMode] = useState<"dashboard" | "mission" | "tap" | "tap_config" | "schedule_agent">("dashboard");
+    const [scheduleProfile, setScheduleProfile] = useState<ScheduleProfile | null>(null);
+    const [studyBlockMissed, setStudyBlockMissed] = useState(false);
     const [activeTapId, setActiveTapId] = useState<string | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const [missedDate, setMissedDate] = useState<string | null>(null);
@@ -108,6 +144,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
     const [userId, setUserId] = useState<string>("anon_user"); // Default for now, or auth.uid() if auth is set up
 
     const [recentEvents, setRecentEvents] = useState<any[]>([]);
+    const [navHistory, setNavHistory] = useState<string[]>([]);
 
     // 1. DATA PERSISTENCE & THEME LOAD
     useEffect(() => {
@@ -156,7 +193,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             .single();
 
         if (profileError && profileError.code !== 'PGRST116') { // Ignore 'row not found' for new users
-            console.error("Error loading profile:", profileError);
+            console.error("Error loading profile:", profileError.message, profileError);
         }
 
         let userProfile: UserProfile | null = profileData || null;
@@ -170,7 +207,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                 .select()
                 .single();
 
-            if (createError) console.error("Error creating profile:", createError);
+            if (createError) console.error("Error creating profile:", createError.message, createError);
             else userProfile = newProfile;
         }
 
@@ -180,7 +217,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             .select('*')
             .eq('user_id', uid);
 
-        if (missionsError) console.error("Error loading missions:", missionsError);
+        if (missionsError) console.error("Error loading missions:", missionsError.message, missionsError);
         else console.log("Missions loaded:", missionsData?.length || 0);
 
         const loadedMissions: { [id: string]: MissionData } = {};
@@ -205,7 +242,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             .select('*')
             .eq('user_id', uid);
 
-        if (targetsError) console.error("Error loading targets:", targetsError);
+        if (targetsError) console.error("Error loading targets:", targetsError.message, targetsError);
         else console.log("Targets loaded:", targetsData?.length || 0);
 
         const loadedTargets: { [id: string]: TapTarget } = {};
@@ -231,20 +268,37 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             .order('created_at', { ascending: false })
             .limit(10);
 
-        if (eventsError) console.error("Error loading events:", eventsError);
+        if (eventsError) console.error("Error loading events:", eventsError.message, eventsError);
         else console.log("Events loaded:", eventsData?.length || 0);
 
         if (eventsData) {
             setRecentEvents(eventsData);
         }
 
+        // 5. Schedule Profile
+        const { data: scheduleData } = await supabase
+            .from('schedule_profiles')
+            .select('*')
+            .eq('user_id', uid)
+            .single();
+
+        if (scheduleData) {
+            setScheduleProfile(scheduleData.data as ScheduleProfile);
+        }
+
+        const missionKeys = Object.keys(loadedMissions);
+        // Default to the most recently created/updated mission, or first available
+        const fallbackId = missionKeys.length > 0 ? missionKeys[missionKeys.length - 1] : null;
+
         setState({
-            activeMissionId: null,
+            activeMissionId: fallbackId,
             missions: loadedMissions,
             tapTargets: loadedTargets,
-            userProfile
+            userProfile,
+            notifications: [],
+            calendarEvents: [],
         });
-        console.log("State updated from Supabase.");
+        console.log("State updated from Supabase. Active Mission:", fallbackId);
     };
 
     const logEvent = async (type: string, value?: number, metadata?: any) => {
@@ -423,7 +477,8 @@ export function FocusProvider({ children }: { children: ReactNode }) {
     }
 
     const toggleTheme = () => {
-        const newTheme = theme === "light" ? "dark" : "light";
+        const cycle: Record<string, string> = { light: "dark", dark: "neon", neon: "light" };
+        const newTheme = cycle[theme] ?? "light";
         setTheme(newTheme);
         localStorage.setItem("theme", newTheme);
         document.documentElement.setAttribute("data-theme", newTheme);
@@ -453,7 +508,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             user_id: userId,
             title: newTarget.title,
             current_count: 0,
-            target_count: 100,
+            target_count: newTarget.target,
             is_completed: false,
             data: newTarget
         }).select();
@@ -496,6 +551,8 @@ export function FocusProvider({ children }: { children: ReactNode }) {
 
     const addTask = (title: string) => {
         if (!activeMission) return;
+        // Deduplicate: don't add if title already exists as a pending task
+        if (activeMission.tasks.some(t => t.title === title && t.status === "pending")) return;
         const newTask: Task = { id: Date.now(), title, priority: "High", status: "pending" };
         const newHabits = [...(activeMission.config.dailyHabits || [])];
         if (!newHabits.includes(title)) newHabits.push(title);
@@ -507,7 +564,8 @@ export function FocusProvider({ children }: { children: ReactNode }) {
     };
 
     const completeTask = async (id: number, points: number) => {
-        if (missedDate && !showMercyAlert || !activeMission) return;
+        if (!activeMission) return;
+        if (missedDate && !showMercyAlert) return;
         const task = activeMission.tasks.find(t => t.id === id);
         if (!task) return;
 
@@ -575,15 +633,89 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         setShowMercyAlert(false);
     };
 
+    // Notification management
+    const addNotification = (notif: Omit<AppNotification, 'id'>) => {
+        const id = crypto.randomUUID();
+        setState(prev => ({
+            ...prev,
+            notifications: [...prev.notifications, { id, ...notif }]
+        }));
+    };
+
+    const dismissNotification = (id: string) => {
+        setState(prev => ({
+            ...prev,
+            notifications: prev.notifications.filter(n => n.id !== id)
+        }));
+    };
+
+    const addCalendarEvents = (events: CalendarEvent[]) => {
+        setState(prev => ({
+            ...prev,
+            calendarEvents: [...prev.calendarEvents, ...events],
+        }));
+    };
+
+    const clearCalendarEvents = () => {
+        setState(prev => ({ ...prev, calendarEvents: [] }));
+    };
+
+    const pushNavHistory = (path: string) => {
+        setNavHistory(prev => {
+            // Don't push duplicate consecutive paths
+            if (prev[prev.length - 1] === path) return prev;
+            return [...prev, path].slice(-20); // cap at 20 entries
+        });
+    };
+
+    const popNavHistory = (): string | undefined => {
+        let popped: string | undefined;
+        setNavHistory(prev => {
+            if (prev.length === 0) return prev;
+            popped = prev[prev.length - 1];
+            return prev.slice(0, -1);
+        });
+        return popped;
+    };
+
+    const saveScheduleProfile = async (profile: ScheduleProfile) => {
+        setScheduleProfile(profile);
+        const { error } = await supabase.from('schedule_profiles').upsert({
+            id: profile.id,
+            user_id: userId,
+            data: profile,
+            updated_at: new Date().toISOString()
+        });
+        if (error) console.error("Error saving schedule profile:", error);
+        else logEvent('schedule_profile_saved', undefined, { profile_id: profile.id });
+    };
+
+    const deleteScheduleProfile = async () => {
+        setScheduleProfile(null);
+        const { error } = await supabase
+            .from('schedule_profiles')
+            .delete()
+            .eq('user_id', userId);
+        if (error) console.error("Error deleting schedule profile:", error);
+        else logEvent('schedule_profile_deleted', undefined, {});
+    };
+
+    const acknowledgeStudyMiss = () => {
+        setStudyBlockMissed(false);
+        logEvent('study_miss_acknowledged', undefined, {});
+    };
+
     const handleRestart = async () => {
         if (!activeMission) return;
+        const todayStr = new Date().toISOString().split('T')[0];
         const freshMission: MissionData = {
             ...activeMission,
             config: { ...activeMission.config, startDate: new Date().toISOString() },
             tasks: [],
             history: {},
             dailyLog: {},
-            todayScore: 0
+            todayScore: 0,
+            scoreDate: todayStr
         };
         // Optimistic
         setState(prev => ({
@@ -626,7 +758,24 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                 handleRestart,
                 toggleTheme,
                 addMission,
-                recentEvents
+                recentEvents,
+                scheduleProfile,
+                studyBlockMissed,
+                saveScheduleProfile,
+                acknowledgeStudyMiss,
+                setStudyBlockMissed,
+                // Notification helpers
+                addNotification,
+                dismissNotification,
+                // Calendar
+                addCalendarEvents,
+                clearCalendarEvents,
+                // Schedule management
+                deleteScheduleProfile,
+                // Navigation history
+                navHistory,
+                pushNavHistory,
+                popNavHistory,
             }}
         >
             {children}

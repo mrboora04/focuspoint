@@ -89,7 +89,7 @@ export default function TapCounter({ target, title, theme = "ember", icon = "tar
         setTimeout(() => {
             onComplete({
                 totalTime,
-                totalTaps: target,
+                totalTaps: count,
                 avgGap
             });
         }, 1500);

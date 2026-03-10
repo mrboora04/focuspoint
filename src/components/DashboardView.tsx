@@ -21,6 +21,9 @@ export default function DashboardView() {
     const router = useRouter();
 
     // CALCULATE STATS
+    // totalPoints = sum of all task points from dailyLog (full history)
+    // todayPoints = sum of points logged today specifically
+    // Note: todayScore == sum of today's task points, so we do NOT add it separately
     let totalPoints = 0;
     let todayPoints = 0;
     let missionsActive = 0;
@@ -31,8 +34,6 @@ export default function DashboardView() {
     const todayStr = today.toISOString().split('T')[0];
 
     Object.values(state.missions).forEach((mission) => {
-        totalPoints += (mission.todayScore || 0);
-
         if (mission.dailyLog) {
             Object.values(mission.dailyLog).forEach((day) => {
                 day.tasks?.forEach((t: any) => totalPoints += (t.points || 0));

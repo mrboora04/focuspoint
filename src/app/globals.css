@@ -37,6 +37,24 @@
   /* Darker Red */
 }
 
+[data-theme='neon'] {
+  /* Neon Horizon Theme — Futuristic / Cyberpunk */
+  --background: #070B14;
+  /* Deep Space Black */
+  --foreground: #E0F7FF;
+  /* Ice White */
+  --card-bg: #0D1525;
+  /* Dark Navy Glass */
+  --card-border: rgba(0, 245, 255, 0.18);
+  /* Neon Cyan Glow */
+  --accent: #00F5FF;
+  /* Neon Cyan */
+  --success: #00FF88;
+  /* Neon Green */
+  --danger: #FF2D6B;
+  /* Neon Pink */
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -72,4 +90,69 @@ body {
   .border-theme-border {
     border-color: var(--card-border);
   }
+
+  /* Neon Horizon glow utilities */
+  .neon-glow {
+    box-shadow: 0 0 8px rgba(0, 245, 255, 0.4), 0 0 24px rgba(0, 245, 255, 0.15);
+  }
+
+  .neon-text {
+    text-shadow: 0 0 8px rgba(0, 245, 255, 0.8), 0 0 20px rgba(0, 245, 255, 0.4);
+  }
+
+  .neon-border {
+    border-color: rgba(0, 245, 255, 0.5);
+    box-shadow: 0 0 6px rgba(0, 245, 255, 0.3), inset 0 0 6px rgba(0, 245, 255, 0.05);
+  }
 }
+
+/* Neon Horizon scan-line animation */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes neon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+[data-theme='neon'] body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 245, 255, 0.4), transparent);
+  animation: scanline 6s linear infinite;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+[data-theme='neon'] .bg-theme-card {
+  background: linear-gradient(135deg, #0D1525 0%, #0A1020 100%);
+  border: 1px solid rgba(0, 245, 255, 0.12);
+  box-shadow: 0 0 20px rgba(0, 245, 255, 0.05), inset 0 1px 0 rgba(0, 245, 255, 0.08);
+}
+
+[data-theme='neon'] button:focus-visible {
+  outline: 2px solid rgba(0, 245, 255, 0.8);
+  outline-offset: 2px;
+}
+
+/* ── Schedule: Tri-Kala period bar colours ── */
+.period-brahma-bar   { background: #F78320; }
+.period-karma-bar    { background: #3B82F6; }
+.period-vishrama-bar { background: #10B981; }
+
+[data-theme='neon'] .period-brahma-bar   { background: #00F5FF; }
+[data-theme='neon'] .period-karma-bar    { background: #FF2D6B; }
+[data-theme='neon'] .period-vishrama-bar { background: #00FF88; }
+
+/* ── NOW indicator pulse ── */
+@keyframes now-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.65; }
+}
+.now-indicator { animation: now-pulse 2s ease-in-out infinite; }

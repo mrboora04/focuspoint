@@ -5,8 +5,10 @@ import ActiveMissionView from "@/components/ActiveMissionView";
 import TapCounter from "@/components/TapCounter";
 import TapTargetConfig from "@/components/TapTargetConfig";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, ShieldAlert } from "lucide-react";
+import { Heart, ShieldAlert, AlertTriangle } from "lucide-react";
 import SplashScreen from "@/components/SplashScreen";
+import ScheduleAgentView from "@/components/ScheduleAgentView";
+import NotificationToast from "@/components/NotificationToast";
 import { useState } from "react";
 
 export default function GlobalOverlays() {
@@ -23,13 +25,18 @@ export default function GlobalOverlays() {
         addTask,
         completeTask,
         createTapTarget,
-        updateTapTarget
+        updateTapTarget,
+        studyBlockMissed,
+        acknowledgeStudyMiss,
     } = useFocus();
 
     const [showSplash, setShowSplash] = useState(true);
 
     return (
         <>
+            {/* Global toast notifications — always rendered on top */}
+            <NotificationToast />
+
             <AnimatePresence>
                 {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
             </AnimatePresence>
@@ -67,6 +74,44 @@ export default function GlobalOverlays() {
                         onClose={() => setViewMode("dashboard")}
                         onComplete={(stats) => updateTapTarget(activeTapId, stats.totalTaps)}
                     />
+                )}
+            </AnimatePresence>
+
+            {/* NEXUS SCHEDULE AGENT */}
+            <AnimatePresence>
+                {viewMode === "schedule_agent" && (
+                    <ScheduleAgentView onClose={() => setViewMode("dashboard")} />
+                )}
+            </AnimatePresence>
+
+            {/* STUDY BLOCK MISSED WARNING */}
+            <AnimatePresence>
+                {studyBlockMissed && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="bg-[#1E1A17] rounded-[2.5rem] p-8 max-w-md w-full text-center"
+                            style={{ border: "2px solid var(--danger)" }}
+                        >
+                            <AlertTriangle className="w-16 h-16 mx-auto mb-4 animate-pulse" style={{ color: "var(--danger)" }} />
+                            <h2 className="text-2xl font-black mb-2 text-white uppercase">Study Block Missed</h2>
+                            <p className="text-white/60 mb-2">Your 12:00–2:00 PM study window has passed.</p>
+                            <p className="text-white/40 text-sm mb-6">+30 minute penalty added to tomorrow's session.</p>
+                            <button
+                                onClick={acknowledgeStudyMiss}
+                                className="w-full py-4 rounded-2xl font-bold text-white hover:scale-[1.02] transition-transform"
+                                style={{ background: "var(--danger)" }}
+                            >
+                                ACKNOWLEDGED
+                            </button>
+                        </motion.div>
+                    </motion.div>
                 )}
             </AnimatePresence>
 

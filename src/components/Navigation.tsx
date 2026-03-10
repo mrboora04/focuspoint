@@ -1,56 +1,72 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { LayoutDashboard, Command, Menu } from "lucide-react";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { LayoutDashboard, Command, Menu, Bot, CalendarDays, ChevronLeft } from "lucide-react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useFocus } from "@/context/FocusContext";
 
 export default function Navigation() {
     const pathname = usePathname();
+    const router = useRouter();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const { setViewMode, navHistory, pushNavHistory } = useFocus();
+
+    // Push current path to navHistory whenever pathname changes
+    useEffect(() => {
+        if (pathname) pushNavHistory(pathname);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pathname]);
+
+    // Back is available if there's more than one entry (current page is always pushed)
+    const canGoBack = navHistory.length > 1;
+
+    const handleBack = () => {
+        // Navigate to the second-to-last entry (the one before current)
+        const prev = navHistory[navHistory.length - 2];
+        if (prev) router.push(prev);
+    };
 
     const isActive = (path: string) => pathname === path;
-
-    const NavItem = ({ path, label, icon: Icon }: { path: string; label: string; icon: any }) => (
-        <Link
-            href={path}
-            onClick={() => setIsMobileMenuOpen(false)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all ${isActive(path)
-                    ? "bg-[#F78320] text-white font-bold shadow-md shadow-[#F78320]/20"
-                    : "text-white/60 hover:text-white hover:bg-white/5"
-                }`}
-        >
-            <Icon className="w-4 h-4" />
-            <span className="text-sm tracking-wide">{label}</span>
-            {isActive(path) && (
-                <motion.div
-                    layoutId="nav-pill"
-                    className="absolute inset-0 bg-[#F78320] rounded-xl -z-10"
-                    transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                />
-            )}
-        </Link>
-    );
 
     return (
         <nav className="fixed top-0 left-0 right-0 z-50 bg-[#1E1A17]/80 backdrop-blur-md border-b border-white/5 h-16">
             <div className="max-w-4xl mx-auto px-4 h-full flex items-center justify-between">
 
-                {/* BRAND */}
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-[#F78320]/10 rounded-lg flex items-center justify-center text-lg shadow-sm border border-[#F78320]/20 text-[#F78320]">
-                        🦁
+                {/* LEFT: Back button + Brand */}
+                <div className="flex items-center gap-2">
+                    {/* In-app back button */}
+                    <AnimatePresence>
+                        {canGoBack && (
+                            <motion.button
+                                initial={{ opacity: 0, x: -8 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -8 }}
+                                transition={{ duration: 0.15 }}
+                                onClick={handleBack}
+                                className="flex items-center gap-1 px-2 py-1.5 rounded-xl text-white/50 hover:text-white hover:bg-white/8 transition-colors text-xs font-bold tracking-wider"
+                                aria-label="Go back"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                                <span className="hidden sm:block">BACK</span>
+                            </motion.button>
+                        )}
+                    </AnimatePresence>
+
+                    <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 bg-[#F78320]/10 rounded-lg flex items-center justify-center text-lg shadow-sm border border-[#F78320]/20 text-[#F78320]">
+                            🦁
+                        </div>
+                        <span className="text-lg font-bold text-white tracking-widest uppercase hidden md:block">COMMANDER</span>
                     </div>
-                    <span className="text-lg font-bold text-white tracking-widest uppercase hidden md:block">COMMANDER</span>
                 </div>
 
                 {/* DESKTOP NAV */}
                 <div className="hidden md:flex items-center gap-2 relative">
                     <Link
                         href="/dashboard"
-                        className={`relative px-4 py-2 rounded-xl transition-colors ${isActive("/dashboard") ? "text-white font-bold" : "text-white/60 hover:text-white"
-                            }`}
+                        className={`relative px-4 py-2 rounded-xl transition-colors ${isActive("/dashboard") ? "text-white font-bold" : "text-white/60 hover:text-white"}`}
                     >
                         <span className="flex items-center gap-2 z-10 relative">
                             <LayoutDashboard className="w-4 h-4" />
@@ -59,15 +75,15 @@ export default function Navigation() {
                         {isActive("/dashboard") && (
                             <motion.div
                                 layoutId="active-nav"
-                                className="absolute inset-0 bg-[#F78320] rounded-xl"
+                                className="absolute inset-0 rounded-xl"
+                                style={{ background: "var(--accent)" }}
                             />
                         )}
                     </Link>
 
                     <Link
                         href="/command"
-                        className={`relative px-4 py-2 rounded-xl transition-colors ${isActive("/command") ? "text-white font-bold" : "text-white/60 hover:text-white"
-                            }`}
+                        className={`relative px-4 py-2 rounded-xl transition-colors ${isActive("/command") ? "text-white font-bold" : "text-white/60 hover:text-white"}`}
                     >
                         <span className="flex items-center gap-2 z-10 relative">
                             <Command className="w-4 h-4" />
@@ -76,20 +92,48 @@ export default function Navigation() {
                         {isActive("/command") && (
                             <motion.div
                                 layoutId="active-nav"
-                                className="absolute inset-0 bg-[#F78320] rounded-xl"
+                                className="absolute inset-0 rounded-xl"
+                                style={{ background: "var(--accent)" }}
+                            />
+                        )}
+                    </Link>
+
+                    <Link
+                        href="/schedule"
+                        className={`relative px-4 py-2 rounded-xl transition-colors ${isActive("/schedule") ? "text-white font-bold" : "text-white/60 hover:text-white"}`}
+                    >
+                        <span className="flex items-center gap-2 z-10 relative">
+                            <CalendarDays className="w-4 h-4" />
+                            SCHEDULE
+                        </span>
+                        {isActive("/schedule") && (
+                            <motion.div
+                                layoutId="active-nav"
+                                className="absolute inset-0 rounded-xl"
+                                style={{ background: "var(--accent)" }}
                             />
                         )}
                     </Link>
                 </div>
 
-                {/* MOBILE MENU TOGGLE */}
-                <button
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="md:hidden p-2 text-white/80"
-                >
-                    <Menu className="w-6 h-6" />
-                </button>
+                {/* RIGHT: NEXUS button + mobile menu toggle */}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setViewMode("schedule_agent")}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/10 transition-all text-xs font-bold tracking-widest uppercase"
+                        style={{ boxShadow: "0 0 10px rgba(0,245,255,0.15)" }}
+                    >
+                        <Bot className="w-4 h-4" />
+                        <span className="hidden sm:block">NEXUS</span>
+                    </button>
 
+                    <button
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className="md:hidden p-2 text-white/80"
+                    >
+                        <Menu className="w-6 h-6" />
+                    </button>
+                </div>
             </div>
 
             {/* MOBILE MENU DROPDOWN */}
@@ -105,8 +149,7 @@ export default function Navigation() {
                             <Link
                                 href="/dashboard"
                                 onClick={() => setIsMobileMenuOpen(false)}
-                                className={`flex items-center gap-3 p-3 rounded-xl ${isActive("/dashboard") ? "bg-[#F78320] text-white" : "text-white/60"
-                                    }`}
+                                className={`flex items-center gap-3 p-3 rounded-xl ${isActive("/dashboard") ? "bg-[#F78320] text-white" : "text-white/60"}`}
                             >
                                 <LayoutDashboard className="w-5 h-5" />
                                 <span className="font-bold">Dashboard</span>
@@ -114,11 +157,20 @@ export default function Navigation() {
                             <Link
                                 href="/command"
                                 onClick={() => setIsMobileMenuOpen(false)}
-                                className={`flex items-center gap-3 p-3 rounded-xl ${isActive("/command") ? "bg-[#F78320] text-white" : "text-white/60"
-                                    }`}
+                                className={`flex items-center gap-3 p-3 rounded-xl ${isActive("/command") ? "text-white" : "text-white/60"}`}
+                                style={isActive("/command") ? { background: "var(--accent)" } : {}}
                             >
                                 <Command className="w-5 h-5" />
                                 <span className="font-bold">Command Center</span>
+                            </Link>
+                            <Link
+                                href="/schedule"
+                                onClick={() => setIsMobileMenuOpen(false)}
+                                className={`flex items-center gap-3 p-3 rounded-xl ${isActive("/schedule") ? "text-white" : "text-white/60"}`}
+                                style={isActive("/schedule") ? { background: "var(--accent)" } : {}}
+                            >
+                                <CalendarDays className="w-5 h-5" />
+                                <span className="font-bold">Schedule</span>
                             </Link>
                         </div>
                     </motion.div>
