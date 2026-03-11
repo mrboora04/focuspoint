@@ -75,7 +75,7 @@ export default function ScheduleView() {
         await saveScheduleProfile({
             ...scheduleProfile,
             name: editName.trim() || undefined,
-            anchors: editAnchors as typeof scheduleProfile.anchors,
+            anchors: editAnchors as unknown as typeof scheduleProfile.anchors,
             customBlocks: editCustomBlocks,
             updatedAt: new Date().toISOString(),
         });

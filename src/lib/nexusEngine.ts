@@ -124,18 +124,18 @@ export function generateLocalSuggestions(state: AppState, schedule: DailySchedul
         });
 
         // Analyze Tap Targets for long gaps
-        const activeTargets = Object.values(state.tapTargets).filter(t => !t.is_completed);
+        const activeTargets = Object.values(state.tapTargets).filter(t => t.count < t.target);
         activeTargets.forEach(t => {
-            if (t.data?.count && t.data.count > 0 && t.data.count < t.data.target) {
+            if (t.count > 0 && t.count < t.target) {
                 // If they are more than halfway done, encourage them
-                const percent = t.data.count / t.data.target;
+                const percent = t.count / t.target;
                 if (percent > 0.8) {
                     suggestions.push({
                         id: `tap_target_close_${t.id}`,
                         type: "insight",
                         priority: "high",
                         headline: "Target Almost Reached",
-                        description: `You are ${t.data.target - t.data.count} taps away from completing "${t.data.title}".`,
+                        description: `You are ${t.target - t.count} taps away from completing "${t.title}".`,
                         actionLabel: "Finish It",
                         actionPayload: `tap_${t.id}`
                     });

@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Command, Menu, Bot, CalendarDays, ChevronLeft } from "lucide-react";
-import { useState, useEffect } from "react";
+import { LayoutDashboard, Command, Menu, CalendarDays, ChevronLeft } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useFocus } from "@/context/FocusContext";
 
@@ -11,21 +11,30 @@ export default function Navigation() {
     const pathname = usePathname();
     const router = useRouter();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const { setViewMode, navHistory, pushNavHistory } = useFocus();
+    const { setViewMode } = useFocus();
 
-    // Push current path to navHistory whenever pathname changes
+    // Local nav history — kept here so navigating doesn't re-render all context consumers
+    const navHistoryRef = useRef<string[]>([]);
+    const [canGoBack, setCanGoBack] = useState(false);
+
     useEffect(() => {
-        if (pathname) pushNavHistory(pathname);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (!pathname) return;
+        const prev = navHistoryRef.current;
+        // Don't push duplicate consecutive paths
+        if (prev[prev.length - 1] !== pathname) {
+            navHistoryRef.current = [...prev, pathname].slice(-20);
+            setCanGoBack(navHistoryRef.current.length > 1);
+        }
     }, [pathname]);
 
-    // Back is available if there's more than one entry (current page is always pushed)
-    const canGoBack = navHistory.length > 1;
-
     const handleBack = () => {
-        // Navigate to the second-to-last entry (the one before current)
-        const prev = navHistory[navHistory.length - 2];
-        if (prev) router.push(prev);
+        const history = navHistoryRef.current;
+        const prevPath = history[history.length - 2];
+        if (prevPath) {
+            navHistoryRef.current = history.slice(0, -1);
+            setCanGoBack(navHistoryRef.current.length > 1);
+            router.push(prevPath);
+        }
     };
 
     const isActive = (path: string) => pathname === path;
@@ -116,17 +125,15 @@ export default function Navigation() {
                     </Link>
                 </div>
 
-                {/* RIGHT: NEXUS button + mobile menu toggle */}
+                {/* RIGHT: Today overview + mobile toggle */}
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setViewMode("schedule_agent")}
-                        className="flex items-center gap-2 px-3 py-2 rounded-xl text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/10 transition-all text-xs font-bold tracking-widest uppercase"
-                        style={{ boxShadow: "0 0 10px rgba(0,245,255,0.15)" }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white/60 hover:text-white border border-white/10 hover:border-white/20 transition-all text-[10px] font-bold tracking-wider uppercase"
                     >
-                        <Bot className="w-4 h-4" />
-                        <span className="hidden sm:block">NEXUS</span>
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        <span className="hidden sm:block">TODAY</span>
                     </button>
-
                     <button
                         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                         className="md:hidden p-2 text-white/80"

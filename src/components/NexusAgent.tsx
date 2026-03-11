@@ -1,153 +1,158 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bot, Zap, Clock, ChevronDown, ChevronUp, TrendingUp, AlertTriangle } from "lucide-react";
+import { useState } from "react";
+import { Flame, ChevronDown, ChevronUp, Calendar, TrendingUp, Target } from "lucide-react";
 import { useFocus } from "@/context/FocusContext";
-import { generateLocalSuggestions } from "@/lib/nexusEngine";
-import { generateDailySchedule, findCurrentBlock, currentTimeHHMM } from "@/lib/scheduleEngine";
+
+// Philosophical quotes tied to user state
+function getInsight(opts: {
+    streakDays: number;
+    tasksCompleted: number;
+    tasksRemaining: number;
+    calendarEventCount: number;
+    hasActiveMission: boolean;
+}): { headline: string; body: string; verse: string } {
+    const { streakDays, tasksCompleted, tasksRemaining, calendarEventCount, hasActiveMission } = opts;
+
+    if (!hasActiveMission) {
+        return {
+            headline: "The path begins with a single step.",
+            body: "You have no active protocol. Every discipline starts with a decision. Set your mission before the day slips away.",
+            verse: "— Marcus Aurelius"
+        };
+    }
+
+    if (streakDays >= 7) {
+        return {
+            headline: `${streakDays} days without surrender.`,
+            body: "Consistency is not a feeling — it is a commitment. You are building the kind of character that most people only admire from a distance.",
+            verse: "— Seneca"
+        };
+    }
+
+    if (tasksCompleted === 0 && tasksRemaining > 0) {
+        return {
+            headline: "Today's work waits for no one.",
+            body: `${tasksRemaining} task${tasksRemaining > 1 ? "s" : ""} remain untouched. The warrior who delays his duty loses not just time, but momentum. Begin now.`,
+            verse: "— Epictetus"
+        };
+    }
+
+    if (tasksRemaining === 0 && tasksCompleted > 0) {
+        return {
+            headline: "Today's duty: fulfilled.",
+            body: `All ${tasksCompleted} task${tasksCompleted > 1 ? "s" : ""} completed. Rest with purpose — tomorrow demands the same resolve. You have earned tonight.`,
+            verse: "— Marcus Aurelius"
+        };
+    }
+
+    if (calendarEventCount > 0) {
+        return {
+            headline: "Your schedule speaks before you do.",
+            body: `${calendarEventCount} calendar event${calendarEventCount > 1 ? "s" : ""} today. Honor each block as if it were a promise to your future self.`,
+            verse: "— Stoic Principle"
+        };
+    }
+
+    if (tasksCompleted > 0) {
+        return {
+            headline: "Progress is proof of intent.",
+            body: `${tasksCompleted} done, ${tasksRemaining} to go. The soldier does not stop when tired. He stops when done.`,
+            verse: "— Jocko Willink"
+        };
+    }
+
+    return {
+        headline: "Discipline is choosing the harder path.",
+        body: "Each task you complete is a vote for the version of yourself you are trying to become. Cast that vote today.",
+        verse: "— James Clear"
+    };
+}
 
 export default function NexusAgent() {
-    const { state, scheduleProfile } = useFocus();
+    const { state } = useFocus();
     const [expanded, setExpanded] = useState(false);
-    const [now, setNow] = useState(currentTimeHHMM());
 
-    // Tick clock every minute
-    useEffect(() => {
-        const t = setInterval(() => setNow(currentTimeHHMM()), 60_000);
-        return () => clearInterval(t);
-    }, []);
-
-    // Build schedule and derive current block
-    const today = new Date().toISOString().split("T")[0];
-    const liveSchedule = useMemo(() => {
-        if (!scheduleProfile) return null;
-        return generateDailySchedule(scheduleProfile, Object.keys(state.missions), today);
-    }, [scheduleProfile, state.missions, today]);
-
-    const currentBlock = liveSchedule ? findCurrentBlock(liveSchedule.blocks) : null;
-    const currentBlockLabel = currentBlock?.label ?? "No active block";
-
-    // Compute stats from state directly
     const todayStr = new Date().toISOString().split("T")[0];
-    const todayPoints = Object.values(state.missions).reduce((sum, m) => {
-        if (m.scoreDate === todayStr) return sum + m.todayScore;
-        return sum;
-    }, 0);
-    const currentStreak = state.userProfile?.current_streak ?? 0;
-    const tasksCompleted = Object.values(state.missions).reduce((sum, m) =>
-        sum + m.tasks.filter(t => t.status === "completed").length, 0);
-    const tasksRemaining = Object.values(state.missions).reduce((sum, m) =>
-        sum + m.tasks.filter(t => t.status === "pending").length, 0);
 
-    // Generate local suggestions (no API calls)
-    const suggestions = useMemo(() =>
-        generateLocalSuggestions(state, liveSchedule),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [todayPoints, tasksCompleted, Object.keys(state.missions).length, currentBlockLabel]
-    );
+    const tasksCompleted = useMemo(() =>
+        Object.values(state.missions).reduce((sum, m) =>
+            sum + m.tasks.filter(t => t.status === "completed").length, 0),
+        [state.missions]);
 
-    const topSuggestion = suggestions[0] ?? null;
+    const tasksRemaining = useMemo(() =>
+        Object.values(state.missions).reduce((sum, m) =>
+            sum + m.tasks.filter(t => t.status === "pending").length, 0),
+        [state.missions]);
 
-    // Status color based on productivity
-    const statusColor = tasksCompleted > 0
-        ? tasksRemaining === 0 ? "var(--success)" : "var(--accent)"
-        : "var(--danger)";
+    const streakDays = state.userProfile?.current_streak ?? 0;
+    const calendarEventCount = state.calendarEvents.length;
+    const hasActiveMission = Object.keys(state.missions).length > 0;
+
+    const todayPoints = useMemo(() =>
+        Object.values(state.missions).reduce((sum, m) =>
+            m.scoreDate === todayStr ? sum + m.todayScore : sum, 0),
+        [state.missions, todayStr]);
+
+    const insight = useMemo(() =>
+        getInsight({ streakDays, tasksCompleted, tasksRemaining, calendarEventCount, hasActiveMission }),
+        [streakDays, tasksCompleted, tasksRemaining, calendarEventCount, hasActiveMission]);
+
+    const accentColor = tasksRemaining === 0 && tasksCompleted > 0
+        ? "var(--success)"
+        : tasksCompleted > 0
+            ? "var(--accent)"
+            : "var(--danger)";
 
     return (
         <motion.div
             layout
             className="bg-theme-card rounded-2xl md:rounded-3xl border border-theme-border shadow-sm overflow-hidden"
-            style={{
-                borderTop: `2px solid ${statusColor}`,
-                boxShadow: `0 0 20px ${statusColor}15`,
-            }}
+            style={{ borderTop: `2px solid ${accentColor}` }}
         >
-            {/* ── Main agent bar (always visible) ── */}
             <div className="p-4 md:p-5">
-                <div className="flex items-start gap-3">
-                    {/* Agent avatar */}
-                    <div
-                        className="w-10 h-10 md:w-11 md:h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{
-                            background: `${statusColor}20`,
-                            border: `1.5px solid ${statusColor}40`,
-                            boxShadow: `0 0 12px ${statusColor}30`,
-                        }}
-                    >
-                        <Bot className="w-5 h-5 md:w-6 md:h-6" style={{ color: statusColor }} />
-                    </div>
+                {/* Quote / Insight */}
+                <p className="text-[10px] font-black tracking-widest uppercase opacity-40 mb-2">
+                    Today&apos;s Mindset
+                </p>
+                <h3 className="text-base md:text-lg font-black text-theme-text leading-snug mb-1">
+                    {insight.headline}
+                </h3>
+                <p className="text-xs md:text-sm text-theme-text opacity-60 leading-relaxed mb-2">
+                    {insight.body}
+                </p>
+                <p className="text-[10px] opacity-30 italic">{insight.verse}</p>
 
-                    <div className="flex-1 min-w-0">
-                        {/* Header row */}
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                            <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: statusColor }}>
-                                    NEXUS
-                                </span>
-                                <div className="flex items-center gap-1">
-                                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor }} />
-                                    <span className="text-[9px] opacity-40 tracking-wider">LOCAL</span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-1 text-[10px] opacity-40">
-                                <Clock className="w-3 h-3" />
-                                <span className="font-mono">{now}</span>
-                            </div>
-                        </div>
-
-                        {/* Current block badge */}
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wide"
-                                style={{ background: `${statusColor}15`, color: statusColor, border: `1px solid ${statusColor}30` }}>
-                                {currentBlockLabel}
-                            </span>
-                        </div>
-
-                        {/* Top suggestion */}
-                        {topSuggestion ? (
-                            <div>
-                                <h3 className="text-sm md:text-base font-black text-theme-text leading-tight mb-0.5">
-                                    {topSuggestion.headline}
-                                </h3>
-                                <p className="text-xs md:text-sm opacity-60 leading-relaxed">
-                                    {topSuggestion.description}
-                                </p>
-                            </div>
-                        ) : (
-                            <div>
-                                <h3 className="text-sm font-black text-theme-text leading-tight mb-0.5">All Clear</h3>
-                                <p className="text-xs opacity-60">No active recommendations. Keep it up.</p>
-                            </div>
-                        )}
-
-                        {/* Quick stats bar */}
-                        <div className="flex items-center gap-3 mt-3 text-[10px] font-bold">
-                            <span className="flex items-center gap-1" style={{ color: "var(--accent)" }}>
-                                <Zap className="w-3 h-3" /> {todayPoints} pts today
-                            </span>
-                            <span className="flex items-center gap-1" style={{ color: "var(--success)" }}>
-                                <TrendingUp className="w-3 h-3" /> {currentStreak} day streak
-                            </span>
-                            {tasksRemaining > 0 && (
-                                <span className="flex items-center gap-1" style={{ color: "var(--danger)" }}>
-                                    <AlertTriangle className="w-3 h-3" /> {tasksRemaining} tasks left
-                                </span>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Expand control */}
+                {/* Stats row */}
+                <div className="flex items-center gap-4 mt-3 pt-3 border-t border-theme-border/30">
+                    <span className="flex items-center gap-1 text-[10px] font-bold" style={{ color: "var(--accent)" }}>
+                        <Flame className="w-3 h-3" fill="currentColor" /> {streakDays}d streak
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] font-bold" style={{ color: "var(--accent)" }}>
+                        <TrendingUp className="w-3 h-3" /> {todayPoints} pts
+                    </span>
+                    {calendarEventCount > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-purple-400">
+                            <Calendar className="w-3 h-3" /> {calendarEventCount} events
+                        </span>
+                    )}
+                    {tasksRemaining > 0 && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold" style={{ color: "var(--danger)" }}>
+                            <Target className="w-3 h-3" /> {tasksRemaining} left
+                        </span>
+                    )}
                     <button
                         onClick={() => setExpanded(!expanded)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center opacity-30 hover:opacity-80 transition-opacity"
+                        className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center opacity-30 hover:opacity-80 transition-opacity"
                     >
                         {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
                 </div>
             </div>
 
-            {/* ── Expanded suggestion list ── */}
+            {/* Expanded: activity breakdown */}
             <AnimatePresence>
                 {expanded && (
                     <motion.div
@@ -155,26 +160,31 @@ export default function NexusAgent() {
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="overflow-hidden"
+                        className="overflow-hidden border-t border-theme-border/30"
                     >
-                        <div className="px-4 pb-4 md:px-5 md:pb-5 border-t border-theme-border/30 pt-3 space-y-2">
-                            <p className="text-[9px] font-bold opacity-30 tracking-widest uppercase mb-2">All Suggestions</p>
-                            {suggestions.length === 0 ? (
-                                <p className="text-xs opacity-40">No suggestions right now.</p>
-                            ) : (
-                                suggestions.map(s => (
-                                    <div
-                                        key={s.id}
-                                        className="flex items-start gap-2 p-2.5 rounded-xl text-xs"
-                                        style={{ background: `${statusColor}08`, border: `1px solid ${statusColor}15` }}
-                                    >
-                                        <div className="w-1 h-1 rounded-full mt-1.5 flex-shrink-0" style={{ background: statusColor }} />
-                                        <div>
-                                            <span className="font-bold text-theme-text">{s.headline}</span>
-                                            <span className="opacity-50 ml-1">{s.description}</span>
+                        <div className="px-4 pb-4 pt-3 space-y-2">
+                            <p className="text-[9px] font-bold opacity-30 tracking-widest uppercase mb-2">Today&apos;s Activity</p>
+                            {Object.values(state.missions).map(m => {
+                                const done = m.tasks.filter(t => t.status === "completed").length;
+                                const total = m.tasks.length;
+                                const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                                return (
+                                    <div key={m.id} className="space-y-1">
+                                        <div className="flex justify-between text-[10px] font-bold text-theme-text opacity-60">
+                                            <span>{m.config.name}</span>
+                                            <span>{done}/{total} tasks</span>
+                                        </div>
+                                        <div className="w-full h-1.5 bg-theme-border/30 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full rounded-full transition-all"
+                                                style={{ width: `${pct}%`, background: "var(--accent)" }}
+                                            />
                                         </div>
                                     </div>
-                                ))
+                                );
+                            })}
+                            {Object.keys(state.missions).length === 0 && (
+                                <p className="text-xs opacity-40">No missions active yet.</p>
                             )}
                         </div>
                     </motion.div>

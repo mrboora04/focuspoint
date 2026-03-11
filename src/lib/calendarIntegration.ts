@@ -113,15 +113,20 @@ export function mergeCalendarIntoSchedule(scheduleBlocks: ScheduleBlock[], event
         const eh = e.endTime.getHours().toString().padStart(2, '0');
         const em = e.endTime.getMinutes().toString().padStart(2, '0');
 
+        const startMins = e.startTime.getHours() * 60 + e.startTime.getMinutes();
+        const endMins = e.endTime.getHours() * 60 + e.endTime.getMinutes();
+        const durationMins = endMins > startMins ? endMins - startMins : 30;
+
         merged.push({
             id: `cal_${e.id}`,
             period: "karma", // Default external events to karma
-            type: "routine",
+            type: "free",
             startTime: `${sh}:${sm}`,
             endTime: `${eh}:${em}`,
             label: `📅 ${e.title}`,
             isMandatory: true,
-            isCompleted: false
+            isCompleted: false,
+            durationMins,
         });
     }
 

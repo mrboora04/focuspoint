@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from "react";
 import confetti from "canvas-confetti";
 import { supabase } from "@/lib/supabase";
 import type { ScheduleProfile } from "@/types/schedule";
@@ -24,20 +24,19 @@ export interface Task {
 }
 
 export interface TapTarget {
-    id: string; // text in DB
+    id: string;
     title: string;
-    target: number; // mapped to target_count
-    count: number; // mapped to current_count
+    target: number;
+    count: number;
     theme: string;
     icon: string;
     totalTime?: number;
-    // DB also has: user_id, is_completed, created_at, data (jsonb)
 }
 
 export interface MissionData {
     id: string;
     config: {
-        name: string; // mapped to title
+        name: string;
         duration: number;
         dailyTarget: number;
         startDate: string;
@@ -51,7 +50,7 @@ export interface MissionData {
     tasks: Task[];
     history: { [date: string]: "completed" | "failed" | "skipped" | "rest" | undefined };
     dailyLog: { [date: string]: { tasks: any[] } };
-    todayScore: number; // mapped to points
+    todayScore: number;
     scoreDate: string;
 }
 
@@ -83,23 +82,12 @@ interface FocusContextType {
     viewMode: "dashboard" | "mission" | "tap" | "tap_config" | "schedule_agent";
     theme: string;
     recentEvents: any[];
-    // Notification helpers
     addNotification: (notif: Omit<AppNotification, 'id'>) => void;
     dismissNotification: (id: string) => void;
-
-    // Calendar
     addCalendarEvents: (events: CalendarEvent[]) => void;
     clearCalendarEvents: () => void;
-
     scheduleProfile: ScheduleProfile | null;
     studyBlockMissed: boolean;
-
-    // Navigation history for in-app back button
-    navHistory: string[];
-    pushNavHistory: (path: string) => void;
-    popNavHistory: () => string | undefined;
-
-    // Actions
     setActiveMissionId: (id: string | null) => void;
     setActiveTapId: (id: string | null) => void;
     setViewMode: (mode: "dashboard" | "mission" | "tap" | "tap_config" | "schedule_agent") => void;
@@ -120,8 +108,6 @@ interface FocusContextType {
 
 const FocusContext = createContext<FocusContextType | undefined>(undefined);
 
-// const STORAGE_KEY = "focuspoint_v1"; // REMOVED
-
 const INITIAL_STATE: AppState = {
     activeMissionId: null,
     missions: {},
@@ -141,37 +127,28 @@ export function FocusProvider({ children }: { children: ReactNode }) {
     const [missedDate, setMissedDate] = useState<string | null>(null);
     const [showMercyAlert, setShowMercyAlert] = useState(false);
     const [theme, setTheme] = useState("light");
-    const [userId, setUserId] = useState<string>("anon_user"); // Default for now, or auth.uid() if auth is set up
-
+    const [userId, setUserId] = useState<string>("anon_user");
     const [recentEvents, setRecentEvents] = useState<any[]>([]);
-    const [navHistory, setNavHistory] = useState<string[]>([]);
 
-    // 1. DATA PERSISTENCE & THEME LOAD
+    // Always-fresh state ref — avoids stale closures in useCallback functions
+    const stateRef = useRef(state);
+    useEffect(() => { stateRef.current = state; }, [state]);
+
+    // 1. INIT
     useEffect(() => {
         const init = async () => {
-            console.log("FocusContext: Initializing...");
-            // Theme
             const savedTheme = localStorage.getItem("theme") || "light";
             setTheme(savedTheme);
             document.documentElement.setAttribute("data-theme", savedTheme);
 
-            // Auth (Optional/Simulated for now if Anon)
-            // const { data: { user } } = await supabase.auth.getUser();
-            // if (user) setUserId(user.id);
-            // else: use anon_user or generate a device ID. 
-            // For this request, we'll assume a fixed user for simplicity if auth isn't mandated, 
-            // OR use a quick localStorage ID to persist identity across sessions if no auth.
             let currentUserId = localStorage.getItem("focuspoint_device_id");
             if (!currentUserId) {
                 currentUserId = crypto.randomUUID();
                 localStorage.setItem("focuspoint_device_id", currentUserId);
             }
             setUserId(currentUserId);
-
-            // Load Data
             await loadFromSupabase(currentUserId);
 
-            // Log App Opened
             supabase.from('events').insert({
                 user_id: currentUserId,
                 event_type: 'app_opened'
@@ -180,75 +157,63 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             setIsLoaded(true);
         };
         init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loadFromSupabase = async (uid: string) => {
-        console.log("Loading data from Supabase for user:", uid);
-
-        // 1. User Profile
         const { data: profileData, error: profileError } = await supabase
             .from('user_profile')
             .select('*')
             .eq('user_id', uid)
             .single();
 
-        if (profileError && profileError.code !== 'PGRST116') { // Ignore 'row not found' for new users
-            console.error("Error loading profile:", profileError.message, profileError);
+        if (profileError && profileError.code !== 'PGRST116') {
+            console.error("Error loading profile:", profileError.message);
         }
 
         let userProfile: UserProfile | null = profileData || null;
 
-        // If no profile, create one
         if (!userProfile) {
-            console.log("No profile found, creating new profile...");
             const { data: newProfile, error: createError } = await supabase
                 .from('user_profile')
                 .insert({ user_id: uid, last_active: new Date().toISOString() })
                 .select()
                 .single();
 
-            if (createError) console.error("Error creating profile:", createError.message, createError);
+            if (createError) console.error("Error creating profile:", createError.message);
             else userProfile = newProfile;
         }
 
-        // 2. Missions
         const { data: missionsData, error: missionsError } = await supabase
             .from('missions')
             .select('*')
             .eq('user_id', uid);
 
-        if (missionsError) console.error("Error loading missions:", missionsError.message, missionsError);
-        else console.log("Missions loaded:", missionsData?.length || 0);
+        if (missionsError) console.error("Error loading missions:", missionsError.message);
 
         const loadedMissions: { [id: string]: MissionData } = {};
         if (missionsData) {
             missionsData.forEach((row: any) => {
-                const mission: MissionData = {
+                loadedMissions[row.id] = {
                     ...row.data,
                     id: row.id,
                     todayScore: row.points,
-                    config: {
-                        ...row.data.config,
-                        name: row.title
-                    }
+                    config: { ...row.data.config, name: row.title }
                 };
-                loadedMissions[row.id] = mission;
             });
         }
 
-        // 3. Tap Targets
         const { data: targetsData, error: targetsError } = await supabase
             .from('tap_targets')
             .select('*')
             .eq('user_id', uid);
 
-        if (targetsError) console.error("Error loading targets:", targetsError.message, targetsError);
-        else console.log("Targets loaded:", targetsData?.length || 0);
+        if (targetsError) console.error("Error loading targets:", targetsError.message);
 
         const loadedTargets: { [id: string]: TapTarget } = {};
         if (targetsData) {
             targetsData.forEach((row: any) => {
-                const target: TapTarget = {
+                loadedTargets[row.id] = {
                     id: row.id,
                     title: row.title,
                     count: row.current_count,
@@ -256,11 +221,9 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                     theme: row.data?.theme || "ember",
                     icon: row.data?.icon || "target",
                 };
-                loadedTargets[row.id] = target;
             });
         }
 
-        // 4. Recent Events
         const { data: eventsData, error: eventsError } = await supabase
             .from('events')
             .select('*')
@@ -268,26 +231,18 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             .order('created_at', { ascending: false })
             .limit(10);
 
-        if (eventsError) console.error("Error loading events:", eventsError.message, eventsError);
-        else console.log("Events loaded:", eventsData?.length || 0);
+        if (eventsError) console.error("Error loading events:", eventsError.message);
+        if (eventsData) setRecentEvents(eventsData);
 
-        if (eventsData) {
-            setRecentEvents(eventsData);
-        }
-
-        // 5. Schedule Profile
         const { data: scheduleData } = await supabase
             .from('schedule_profiles')
             .select('*')
             .eq('user_id', uid)
             .single();
 
-        if (scheduleData) {
-            setScheduleProfile(scheduleData.data as ScheduleProfile);
-        }
+        if (scheduleData) setScheduleProfile(scheduleData.data as ScheduleProfile);
 
         const missionKeys = Object.keys(loadedMissions);
-        // Default to the most recently created/updated mission, or first available
         const fallbackId = missionKeys.length > 0 ? missionKeys[missionKeys.length - 1] : null;
 
         setState({
@@ -298,44 +253,36 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             notifications: [],
             calendarEvents: [],
         });
-        console.log("State updated from Supabase. Active Mission:", fallbackId);
     };
 
-    const logEvent = async (type: string, value?: number, metadata?: any) => {
+    const logEvent = useCallback(async (type: string, value?: number, metadata?: any) => {
         const newEvent = {
-            id: crypto.randomUUID(), // Temp ID for UI
+            id: crypto.randomUUID(),
             user_id: userId,
             event_type: type,
             event_value: value,
             metadata,
             created_at: new Date().toISOString()
         };
-
-        // Optimistic UI
         setRecentEvents(prev => [newEvent, ...prev].slice(0, 10));
-
-        // Supabase
-        const { data, error } = await supabase.from('events').insert({
+        await supabase.from('events').insert({
             user_id: userId,
             event_type: type,
             event_value: value,
             metadata
-        }).select();
+        });
+    }, [userId]);
 
-        if (error) console.error("Error logging event:", error);
-        else console.log("Event logged:", data);
-    };
+    const activeMission = useMemo(() =>
+        state.activeMissionId ? state.missions[state.activeMissionId] : null,
+        [state.activeMissionId, state.missions]
+    );
 
-    // No more localStorage effect for state!
-
-    const activeMission = state.activeMissionId ? state.missions[state.activeMissionId] : null;
-
-    // 2. AUTO-POPULATE LOGIC (Runs daily)
-    // Needs update to sync to Supabase
+    // 2. DAILY CHECK
     useEffect(() => {
         if (!activeMission || !isLoaded) return;
-        // Same logic as before, but calls dbUpdate instead of just setState
         checkDailyLogic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.activeMissionId, isLoaded]);
 
     const checkDailyLogic = () => {
@@ -350,8 +297,6 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         checkDate.setHours(0, 0, 0, 0);
         let foundMissed = null;
 
-        // Check history for missed days
-        // ... (Logic identical to previous) ...
         while (checkDate < today) {
             const dateStr = checkDate.toISOString().split('T')[0];
             const dayOfWeek = checkDate.getDay();
@@ -373,7 +318,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             if (remainingBuffer > 0) {
                 const newHistory = { ...activeMission.history, [foundMissed]: "skipped" as const };
                 const newConfig = { ...activeMission.config, bufferDays: remainingBuffer - 1 };
-                updateActiveMission({ history: newHistory, config: newConfig });
+                updateActiveMissionDirect({ history: newHistory, config: newConfig });
                 setMissedDate(foundMissed);
                 setShowMercyAlert(true);
             } else {
@@ -382,7 +327,6 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             }
         }
 
-        // New Day Reset
         if (activeMission.scoreDate !== todayStr) {
             const dayOfWeek = today.getDay();
             const isScheduledDay = activeMission.config.frequency === "selected"
@@ -398,7 +342,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
                     status: "pending"
                 }));
                 missionUpdates = {
-                    todayScore: 0, // Reset DB points
+                    todayScore: 0,
                     scoreDate: todayStr,
                     tasks: [...autoTasks, ...activeMission.tasks.filter(t => t.status === "pending")]
                 };
@@ -408,83 +352,95 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         }
 
         if (Object.keys(missionUpdates).length > 0) {
-            updateActiveMission(missionUpdates);
+            updateActiveMissionDirect(missionUpdates);
         }
-    }
-
-
-    // ACTIONS
-    const updateActiveMission = async (updates: Partial<MissionData>) => {
-        if (!state.activeMissionId) return;
-        const mid = state.activeMissionId;
-        const currentMission = state.missions[mid];
-
-        // Optimistic Update
-        const updatedMission = { ...currentMission, ...updates };
-        setState(prev => ({
-            ...prev,
-            missions: {
-                ...prev.missions,
-                [mid]: updatedMission
-            }
-        }));
-
-        // Supabase Sync
-        // Prepare relational cols
-        const title = updatedMission.config.name;
-        const points = updatedMission.todayScore;
-        const status = 'active'; // Logic for completed/failed? 
-        // We put remaining data in 'data' col
-
-        const { error } = await supabase.from('missions').upsert({
-            id: mid,
-            user_id: userId,
-            title,
-            points,
-            status,
-            data: updatedMission
-        });
-
-        if (error) console.error("Error updating mission:", error);
-        else console.log("Mission synced to Supabase:", mid);
     };
 
-    const addMission = async (mission: MissionData) => {
-        // Optimistic
+    // Internal helper — not exposed in context
+    const updateActiveMissionDirect = async (updates: Partial<MissionData>) => {
+        setState(prev => {
+            const mid = prev.activeMissionId;
+            if (!mid) return prev;
+            const updatedMission = { ...prev.missions[mid], ...updates };
+            const newState = {
+                ...prev,
+                missions: { ...prev.missions, [mid]: updatedMission }
+            };
+
+            // Async Supabase sync (fire and forget)
+            const title = updatedMission.config.name;
+            const points = updatedMission.todayScore;
+            supabase.from('missions').upsert({
+                id: mid,
+                user_id: userId,
+                title,
+                points,
+                status: 'active',
+                data: updatedMission
+            }).then(({ error }) => {
+                if (error) console.error("Error syncing mission:", error.message);
+            });
+
+            return newState;
+        });
+    };
+
+    // ACTIONS
+    const updateActiveMission = useCallback(async (updates: Partial<MissionData>) => {
+        setState(prev => {
+            const mid = prev.activeMissionId;
+            if (!mid) return prev;
+            const updatedMission = { ...prev.missions[mid], ...updates };
+
+            supabase.from('missions').upsert({
+                id: mid,
+                user_id: userId,
+                title: updatedMission.config.name,
+                points: updatedMission.todayScore,
+                status: 'active',
+                data: updatedMission
+            }).then(({ error }) => {
+                if (error) console.error("Error updating mission:", error.message);
+            });
+
+            return {
+                ...prev,
+                missions: { ...prev.missions, [mid]: updatedMission }
+            };
+        });
+    }, [userId]);
+
+    const addMission = useCallback(async (mission: MissionData) => {
         setState(prev => ({
             ...prev,
             activeMissionId: mission.id,
             missions: { ...prev.missions, [mission.id]: mission }
         }));
 
-        // Supabase
-        const { data, error } = await supabase.from('missions').insert({
+        const { error } = await supabase.from('missions').insert({
             id: mission.id,
             user_id: userId,
             title: mission.config.name,
             points: mission.todayScore,
             status: 'active',
             data: mission
-        }).select();
+        });
 
-        if (error) {
-            console.error("Error adding mission:", error);
-            // Rollback state? For now just log.
-        } else {
-            console.log("Mission added to Supabase:", data);
-            logEvent('mission_created', undefined, { mission_id: mission.id, title: mission.config.name });
-        }
-    }
+        if (error) console.error("Error adding mission:", error.message);
+        else logEvent('mission_created', undefined, { mission_id: mission.id, title: mission.config.name });
+    }, [userId, logEvent]);
 
-    const toggleTheme = () => {
-        const cycle: Record<string, string> = { light: "dark", dark: "neon", neon: "light" };
-        const newTheme = cycle[theme] ?? "light";
-        setTheme(newTheme);
-        localStorage.setItem("theme", newTheme);
-        document.documentElement.setAttribute("data-theme", newTheme);
-    };
+    const toggleTheme = useCallback(() => {
+        setTheme(prev => {
+            const cycle: Record<string, string> = { light: "dark", dark: "neon", neon: "light" };
+            const newTheme = cycle[prev] ?? "light";
+            localStorage.setItem("theme", newTheme);
+            document.documentElement.setAttribute("data-theme", newTheme);
+            return newTheme;
+        });
+    }, []);
 
-    const createTapTarget = async (config?: { title: string; target: number; theme: string; icon: string }) => {
+    const createTapTarget = useCallback(async (config?: { title: string; target: number; theme: string; icon: string }) => {
         const id = Date.now().toString();
         const newTarget: TapTarget = {
             id,
@@ -494,7 +450,6 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             theme: config?.theme || "ember",
             icon: config?.icon || "target"
         };
-        // Optimistic
         setState(prev => ({
             ...prev,
             tapTargets: { ...prev.tapTargets, [id]: newTarget }
@@ -502,8 +457,7 @@ export function FocusProvider({ children }: { children: ReactNode }) {
         setActiveTapId(id);
         setViewMode("tap");
 
-        // Supabase
-        const { data, error } = await supabase.from('tap_targets').insert({
+        const { error } = await supabase.from('tap_targets').insert({
             id,
             user_id: userId,
             title: newTarget.title,
@@ -511,174 +465,196 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             target_count: newTarget.target,
             is_completed: false,
             data: newTarget
-        }).select();
+        });
 
-        if (error) {
-            console.error("Error creating tap target:", error);
-        } else {
-            console.log("Tap target created:", data);
-            logEvent('target_created', undefined, { target_id: id });
-        }
-    };
+        if (error) console.error("Error creating tap target:", error.message);
+        else logEvent('target_created', undefined, { target_id: id });
+    }, [userId, logEvent]);
 
-    const updateTapTarget = async (id: string, count: number) => {
-        const target = state.tapTargets[id];
-        if (!target) return;
+    const updateTapTarget = useCallback(async (id: string, newCount: number) => {
+        // Read fresh state via ref to avoid stale closures
+        const tap = stateRef.current.tapTargets[id];
+        if (!tap) return;
 
-        // Optimistic
-        setState(prev => ({
-            ...prev,
-            tapTargets: {
-                ...prev.tapTargets,
-                [id]: { ...prev.tapTargets[id], count }
-            }
-        }));
+        const isCompleted = newCount >= tap.target;
 
-        // Supabase
+        // Optimistic UI update
+        setState(prev => {
+            const t = prev.tapTargets[id];
+            if (!t) return prev;
+            return {
+                ...prev,
+                tapTargets: { ...prev.tapTargets, [id]: { ...t, count: newCount } }
+            };
+        });
+
+        // Persist to Supabase
         const { error } = await supabase.from('tap_targets').update({
-            current_count: count,
-            is_completed: count >= target.target,
-            data: { ...target, count }
+            current_count: newCount,
+            is_completed: isCompleted,
+            data: { ...tap, count: newCount }
         }).eq('id', id);
 
-        if (error) console.error("Error updating tap target:", error);
-        else console.log("Tap target updated:", id, count);
+        if (error) console.error("Error updating tap target:", error.message);
+        if (isCompleted) logEvent('target_completed', undefined, { target_id: id, count: newCount });
+    }, [logEvent]);
 
-        if (count >= target.target) {
-            logEvent('target_completed', undefined, { target_id: id, count });
-        }
-    };
+    const addTask = useCallback((title: string) => {
+        setState(prev => {
+            const mid = prev.activeMissionId;
+            if (!mid) return prev;
+            const mission = prev.missions[mid];
+            if (!mission) return prev;
+            if (mission.tasks.some(t => t.title === title && t.status === "pending")) return prev;
 
-    const addTask = (title: string) => {
-        if (!activeMission) return;
-        // Deduplicate: don't add if title already exists as a pending task
-        if (activeMission.tasks.some(t => t.title === title && t.status === "pending")) return;
-        const newTask: Task = { id: Date.now(), title, priority: "High", status: "pending" };
-        const newHabits = [...(activeMission.config.dailyHabits || [])];
-        if (!newHabits.includes(title)) newHabits.push(title);
+            const newTask: Task = { id: Date.now(), title, priority: "High", status: "pending" };
+            const newHabits = [...(mission.config.dailyHabits || [])];
+            if (!newHabits.includes(title)) newHabits.push(title);
 
-        updateActiveMission({
-            tasks: [newTask, ...activeMission.tasks],
-            config: { ...activeMission.config, dailyHabits: newHabits }
-        });
-    };
+            const updatedMission = {
+                ...mission,
+                tasks: [newTask, ...mission.tasks],
+                config: { ...mission.config, dailyHabits: newHabits }
+            };
 
-    const completeTask = async (id: number, points: number) => {
-        if (!activeMission) return;
-        if (missedDate && !showMercyAlert) return;
-        const task = activeMission.tasks.find(t => t.id === id);
-        if (!task) return;
-
-        const newScore = activeMission.todayScore + points;
-
-        // Confetti
-        if (task.priority === "High" || (newScore >= activeMission.config.dailyTarget && activeMission.todayScore < activeMission.config.dailyTarget)) {
-            confetti({
-                particleCount: 100,
-                spread: 70,
-                origin: { y: 0.6 },
-                colors: ['#F78320', '#EFE0C8', '#ffffff']
+            supabase.from('missions').upsert({
+                id: mid,
+                user_id: userId,
+                title: updatedMission.config.name,
+                points: updatedMission.todayScore,
+                status: 'active',
+                data: updatedMission
+            }).then(({ error }) => {
+                if (error) console.error("Error syncing task add:", error.message);
             });
-        }
 
-        // Log
-        const today = new Date().toISOString().split('T')[0];
-        const newLog = { ...activeMission.dailyLog };
-        if (!newLog[today]) newLog[today] = { tasks: [] };
-        newLog[today].tasks.push({
-            title: task.title,
-            points,
-            time: new Date().toLocaleTimeString(),
-            priority: task.priority
+            return { ...prev, missions: { ...prev.missions, [mid]: updatedMission } };
         });
+    }, [userId]);
 
-        // History
-        const newHistory = { ...activeMission.history };
-        if (newScore >= activeMission.config.dailyTarget) {
-            newHistory[today] = "completed";
-        }
+    const completeTask = useCallback(async (id: number, points: number) => {
+        if (missedDate && !showMercyAlert) return;
 
-        const updates = {
-            todayScore: newScore,
-            tasks: activeMission.tasks.map(t => t.id === id ? { ...t, status: 'completed' as const } : t),
-            dailyLog: newLog,
-            history: newHistory
-        };
+        setState(prev => {
+            const mid = prev.activeMissionId;
+            if (!mid) return prev;
+            const mission = prev.missions[mid];
+            if (!mission) return prev;
+            const task = mission.tasks.find(t => t.id === id);
+            if (!task) return prev;
 
-        await updateActiveMission(updates);
-        console.log("Task completed, points added:", points);
+            const newScore = mission.todayScore + points;
 
-        // Event
-        logEvent('mission_completed_task', points, { mission_id: activeMission.id, task_title: task.title });
+            // Confetti
+            if (task.priority === "High" || (newScore >= mission.config.dailyTarget && mission.todayScore < mission.config.dailyTarget)) {
+                confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 },
+                    colors: ['#F78320', '#EFE0C8', '#ffffff']
+                });
+            }
 
-        // Check if Mission/Day Completed
-        if (newScore >= activeMission.config.dailyTarget && activeMission.todayScore < activeMission.config.dailyTarget) {
-            logEvent('mission_day_completed', undefined, { mission_id: activeMission.id, date: today });
-        }
-    };
+            const today = new Date().toISOString().split('T')[0];
+            const newLog = { ...mission.dailyLog };
+            if (!newLog[today]) newLog[today] = { tasks: [] };
+            newLog[today] = {
+                tasks: [...newLog[today].tasks, {
+                    title: task.title, points, time: new Date().toLocaleTimeString(), priority: task.priority
+                }]
+            };
 
-    const handlePenalty = async () => {
-        if (!missedDate || !activeMission) return;
-        const newHistory = { ...activeMission.history, [missedDate]: "failed" as const };
-        await updateActiveMission({ history: newHistory });
-        console.log("Penalty handled for date:", missedDate);
+            const newHistory = { ...mission.history };
+            if (newScore >= mission.config.dailyTarget) {
+                newHistory[today] = "completed";
+            }
 
-        logEvent('mission_failed_day', undefined, { mission_id: activeMission.id, date: missedDate });
+            const updatedMission = {
+                ...mission,
+                todayScore: newScore,
+                tasks: mission.tasks.map(t => t.id === id ? { ...t, status: 'completed' as const } : t),
+                dailyLog: newLog,
+                history: newHistory
+            };
 
+            supabase.from('missions').upsert({
+                id: mid,
+                user_id: userId,
+                title: updatedMission.config.name,
+                points: updatedMission.todayScore,
+                status: 'active',
+                data: updatedMission
+            }).then(({ error }) => {
+                if (error) console.error("Error syncing task complete:", error.message);
+            });
+
+            logEvent('mission_completed_task', points, { mission_id: mid, task_title: task.title });
+            if (newScore >= mission.config.dailyTarget && mission.todayScore < mission.config.dailyTarget) {
+                logEvent('mission_day_completed', undefined, { mission_id: mid, date: today });
+            }
+
+            return { ...prev, missions: { ...prev.missions, [mid]: updatedMission } };
+        });
+    }, [missedDate, showMercyAlert, userId, logEvent]);
+
+    const handlePenalty = useCallback(async () => {
+        if (!missedDate) return;
+        await updateActiveMission({ history: {} });
+        setState(prev => {
+            const mid = prev.activeMissionId;
+            if (!mid) return prev;
+            const mission = prev.missions[mid];
+            if (!mission || !missedDate) return prev;
+            const updatedMission = {
+                ...mission,
+                history: { ...mission.history, [missedDate]: "failed" as const }
+            };
+            supabase.from('missions').upsert({
+                id: mid,
+                user_id: userId,
+                title: updatedMission.config.name,
+                points: updatedMission.todayScore,
+                status: 'active',
+                data: updatedMission
+            }).then();
+            logEvent('mission_failed_day', undefined, { mission_id: mid, date: missedDate });
+            return { ...prev, missions: { ...prev.missions, [mid]: updatedMission } };
+        });
         setMissedDate(null);
-    };
+    }, [missedDate, userId, logEvent, updateActiveMission]);
 
-    const acknowledgeMercy = () => {
+    const acknowledgeMercy = useCallback(() => {
         setMissedDate(null);
         setShowMercyAlert(false);
-    };
+    }, []);
 
-    // Notification management
-    const addNotification = (notif: Omit<AppNotification, 'id'>) => {
+    const addNotification = useCallback((notif: Omit<AppNotification, 'id'>) => {
         const id = crypto.randomUUID();
         setState(prev => ({
             ...prev,
             notifications: [...prev.notifications, { id, ...notif }]
         }));
-    };
+    }, []);
 
-    const dismissNotification = (id: string) => {
+    const dismissNotification = useCallback((id: string) => {
         setState(prev => ({
             ...prev,
             notifications: prev.notifications.filter(n => n.id !== id)
         }));
-    };
+    }, []);
 
-    const addCalendarEvents = (events: CalendarEvent[]) => {
+    const addCalendarEvents = useCallback((events: CalendarEvent[]) => {
         setState(prev => ({
             ...prev,
             calendarEvents: [...prev.calendarEvents, ...events],
         }));
-    };
+    }, []);
 
-    const clearCalendarEvents = () => {
+    const clearCalendarEvents = useCallback(() => {
         setState(prev => ({ ...prev, calendarEvents: [] }));
-    };
+    }, []);
 
-    const pushNavHistory = (path: string) => {
-        setNavHistory(prev => {
-            // Don't push duplicate consecutive paths
-            if (prev[prev.length - 1] === path) return prev;
-            return [...prev, path].slice(-20); // cap at 20 entries
-        });
-    };
-
-    const popNavHistory = (): string | undefined => {
-        let popped: string | undefined;
-        setNavHistory(prev => {
-            if (prev.length === 0) return prev;
-            popped = prev[prev.length - 1];
-            return prev.slice(0, -1);
-        });
-        return popped;
-    };
-
-    const saveScheduleProfile = async (profile: ScheduleProfile) => {
+    const saveScheduleProfile = useCallback(async (profile: ScheduleProfile) => {
         setScheduleProfile(profile);
         const { error } = await supabase.from('schedule_profiles').upsert({
             id: profile.id,
@@ -686,98 +662,123 @@ export function FocusProvider({ children }: { children: ReactNode }) {
             data: profile,
             updated_at: new Date().toISOString()
         });
-        if (error) console.error("Error saving schedule profile:", error);
+        if (error) console.error("Error saving schedule profile:", error.message);
         else logEvent('schedule_profile_saved', undefined, { profile_id: profile.id });
-    };
+    }, [userId, logEvent]);
 
-    const deleteScheduleProfile = async () => {
+    const deleteScheduleProfile = useCallback(async () => {
         setScheduleProfile(null);
         const { error } = await supabase
             .from('schedule_profiles')
             .delete()
             .eq('user_id', userId);
-        if (error) console.error("Error deleting schedule profile:", error);
+        if (error) console.error("Error deleting schedule profile:", error.message);
         else logEvent('schedule_profile_deleted', undefined, {});
-    };
+    }, [userId, logEvent]);
 
-    const acknowledgeStudyMiss = () => {
+    const acknowledgeStudyMiss = useCallback(() => {
         setStudyBlockMissed(false);
         logEvent('study_miss_acknowledged', undefined, {});
-    };
+    }, [logEvent]);
 
-    const handleRestart = async () => {
-        if (!activeMission) return;
-        const todayStr = new Date().toISOString().split('T')[0];
-        const freshMission: MissionData = {
-            ...activeMission,
-            config: { ...activeMission.config, startDate: new Date().toISOString() },
-            tasks: [],
-            history: {},
-            dailyLog: {},
-            todayScore: 0,
-            scoreDate: todayStr
-        };
-        // Optimistic
-        setState(prev => ({
-            ...prev,
-            missions: { ...prev.missions, [activeMission.id]: freshMission }
-        }));
-
-        // Supabase
-        const { error } = await supabase.from('missions').update({
-            points: 0,
-            status: 'active',
-            data: freshMission
-        }).eq('id', activeMission.id);
-
-        if (error) console.error("Error restarting mission:", error);
-        else console.log("Mission restarted:", activeMission.id);
-
+    const handleRestart = useCallback(async () => {
+        setState(prev => {
+            const mid = prev.activeMissionId;
+            if (!mid) return prev;
+            const mission = prev.missions[mid];
+            if (!mission) return prev;
+            const todayStr = new Date().toISOString().split('T')[0];
+            const freshMission: MissionData = {
+                ...mission,
+                config: { ...mission.config, startDate: new Date().toISOString() },
+                tasks: [],
+                history: {},
+                dailyLog: {},
+                todayScore: 0,
+                scoreDate: todayStr
+            };
+            supabase.from('missions').update({
+                points: 0,
+                status: 'active',
+                data: freshMission
+            }).eq('id', mid).then(({ error }) => {
+                if (error) console.error("Error restarting mission:", error.message);
+            });
+            return { ...prev, missions: { ...prev.missions, [mid]: freshMission } };
+        });
         setMissedDate(null);
-    };
+    }, []);
+
+    const setActiveMissionId = useCallback((id: string | null) => {
+        setState(prev => ({ ...prev, activeMissionId: id }));
+    }, []);
+
+    const contextValue = useMemo<FocusContextType>(() => ({
+        state,
+        activeMission,
+        activeTapId,
+        missedDate,
+        showMercyAlert,
+        viewMode,
+        theme,
+        recentEvents,
+        setActiveMissionId,
+        setActiveTapId,
+        setViewMode,
+        createTapTarget,
+        updateTapTarget,
+        addTask,
+        completeTask,
+        handlePenalty,
+        acknowledgeMercy,
+        handleRestart,
+        toggleTheme,
+        addMission,
+        scheduleProfile,
+        studyBlockMissed,
+        saveScheduleProfile,
+        acknowledgeStudyMiss,
+        setStudyBlockMissed,
+        addNotification,
+        dismissNotification,
+        addCalendarEvents,
+        clearCalendarEvents,
+        deleteScheduleProfile,
+    }), [
+        state,
+        activeMission,
+        activeTapId,
+        missedDate,
+        showMercyAlert,
+        viewMode,
+        theme,
+        recentEvents,
+        setActiveMissionId,
+        setActiveTapId,
+        setViewMode,
+        createTapTarget,
+        updateTapTarget,
+        addTask,
+        completeTask,
+        handlePenalty,
+        acknowledgeMercy,
+        handleRestart,
+        toggleTheme,
+        addMission,
+        scheduleProfile,
+        studyBlockMissed,
+        saveScheduleProfile,
+        acknowledgeStudyMiss,
+        setStudyBlockMissed,
+        addNotification,
+        dismissNotification,
+        addCalendarEvents,
+        clearCalendarEvents,
+        deleteScheduleProfile,
+    ]);
 
     return (
-        <FocusContext.Provider
-            value={{
-                state,
-                activeMission,
-                activeTapId,
-                missedDate,
-                showMercyAlert,
-                viewMode,
-                theme,
-                setActiveMissionId: (id) => setState(prev => ({ ...prev, activeMissionId: id })),
-                setActiveTapId,
-                setViewMode,
-                createTapTarget,
-                updateTapTarget,
-                addTask,
-                completeTask,
-                handlePenalty,
-                acknowledgeMercy,
-                handleRestart,
-                toggleTheme,
-                addMission,
-                recentEvents,
-                scheduleProfile,
-                studyBlockMissed,
-                saveScheduleProfile,
-                acknowledgeStudyMiss,
-                setStudyBlockMissed,
-                // Notification helpers
-                addNotification,
-                dismissNotification,
-                // Calendar
-                addCalendarEvents,
-                clearCalendarEvents,
-                // Schedule management
-                deleteScheduleProfile,
-                // Navigation history
-                navHistory,
-                pushNavHistory,
-                popNavHistory,
-            }}
-        >
+        <FocusContext.Provider value={contextValue}>
             {children}
         </FocusContext.Provider>
     );

@@ -1,9 +1,12 @@
 "use client";
 
+import { memo } from "react";
 import { motion } from "framer-motion";
-import { Trophy, Target, Award, Activity, Zap, CheckCircle2, Flame, AlertTriangle, ArrowRight, Plus } from "lucide-react";
+import { Trophy, Target, Award, Activity, Zap, CheckCircle2, Flame, AlertTriangle, Plus } from "lucide-react";
 import { useFocus } from "@/context/FocusContext";
 import { useRouter } from "next/navigation";
+import IntelligentAgent from "@/components/IntelligentAgent";
+import NexusAgent from "@/components/NexusAgent";
 
 interface ActivityItem {
     id: string;
@@ -14,10 +17,8 @@ interface ActivityItem {
     time: string;
 }
 
-
-
-export default function DashboardView() {
-    const { state, createTapTarget, recentEvents, setViewMode } = useFocus();
+const DashboardView = memo(function DashboardView() {
+    const { state, recentEvents, setViewMode } = useFocus();
     const router = useRouter();
 
     // CALCULATE STATS
@@ -141,6 +142,12 @@ export default function DashboardView() {
 
     return (
         <div className="w-full max-w-4xl mx-auto space-y-4 md:space-y-6 animate-in fade-in zoom-in duration-500 p-3 pb-24 md:p-6 md:pb-20">
+
+            {/* 0. INTELLIGENCE FEED */}
+            <IntelligentAgent />
+
+            {/* 0b. MINDSET CARD */}
+            <NexusAgent />
 
             {/* 1. COMPACT STATS ROW */}
             <div className="grid grid-cols-3 gap-2 md:gap-4 mt-2">
@@ -290,4 +297,6 @@ export default function DashboardView() {
 
         </div>
     );
-}
+});
+
+export default DashboardView;

@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Zap, Target, ArrowRight, Plus, Command } from "lucide-react";
+import { Target, ArrowRight, Plus, Command, Zap } from "lucide-react";
 import { useFocus } from "@/context/FocusContext";
+import { ICONS, THEMES } from "@/components/TapTargetConfig";
 
 export default function CommandView() {
-    const { state, createTapTarget, setActiveTapId, setViewMode, setActiveMissionId } = useFocus();
+    const { state, setActiveTapId, setViewMode, setActiveMissionId } = useFocus();
     const router = useRouter();
 
     const activeMissions = Object.values(state.missions);
@@ -30,7 +31,7 @@ export default function CommandView() {
                     <h2 className="text-xs font-bold tracking-widest text-theme-text opacity-60 uppercase">Tap Targets</h2>
                     <motion.button
                         whileTap={{ scale: 0.95 }}
-                        onClick={createTapTarget}
+                        onClick={() => setViewMode("tap_config")}
                         className="text-[10px] font-bold text-[#F78320] bg-[#F78320]/10 border border-[#F78320]/20 px-3 py-1.5 rounded-lg hover:bg-[#F78320] hover:text-white transition-all flex items-center gap-1.5"
                     >
                         <Plus className="w-3 h-3" />
@@ -40,37 +41,50 @@ export default function CommandView() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {state.tapTargets && Object.keys(state.tapTargets).length > 0 ? (
-                        Object.values(state.tapTargets).map((target: any) => (
-                            <motion.div
-                                key={target.id}
-                                whileHover={{ y: -1 }}
-                                whileTap={{ scale: 0.99 }}
-                                onClick={() => { setActiveTapId(target.id); setViewMode("tap"); }}
-                                className="bg-theme-card p-4 rounded-xl border border-theme-border cursor-pointer hover:border-[#F78320]/30 transition-all flex items-center justify-between group shadow-sm"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:bg-[#F78320]/10 group-hover:text-[#F78320] transition-colors">
-                                        <Zap className="w-5 h-5" fill="currentColor" />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-base font-bold text-theme-text leading-tight">{target.title}</h3>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                            <div className="h-1.5 w-16 bg-black/10 rounded-full overflow-hidden">
-                                                <div
-                                                    className="h-full bg-blue-500 group-hover:bg-[#F78320] transition-colors"
-                                                    style={{ width: `${Math.min(100, (target.count / target.target) * 100)}%` }}
-                                                />
+                        Object.values(state.tapTargets).map((target: any) => {
+                            const themeObj = THEMES.find(t => t.id === target.theme) ?? THEMES[0];
+                            const iconObj = ICONS.find(i => i.id === target.icon) ?? ICONS[0];
+                            const IconComp = iconObj.icon;
+                            const pct = Math.min(100, Math.round((target.count / target.target) * 100));
+                            return (
+                                <motion.div
+                                    key={target.id}
+                                    whileHover={{ y: -1 }}
+                                    whileTap={{ scale: 0.99 }}
+                                    onClick={() => { setActiveTapId(target.id); setViewMode("tap"); }}
+                                    className="bg-theme-card p-4 rounded-xl border border-theme-border cursor-pointer transition-all flex items-center justify-between group shadow-sm"
+                                    style={{ borderColor: `${themeObj.color}30` }}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div
+                                            className="w-10 h-10 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+                                            style={{ background: `${themeObj.color}20`, color: themeObj.color }}
+                                        >
+                                            <IconComp className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-bold text-theme-text leading-tight">{target.title}</h3>
+                                            <div className="flex items-center gap-2 mt-0.5">
+                                                <div className="h-1.5 w-20 bg-black/10 rounded-full overflow-hidden">
+                                                    <div
+                                                        className="h-full rounded-full transition-all"
+                                                        style={{ width: `${pct}%`, background: themeObj.color }}
+                                                    />
+                                                </div>
+                                                <p className="text-[10px] opacity-50 font-bold uppercase tracking-wide" style={{ color: themeObj.color }}>
+                                                    {target.count} / {target.target}
+                                                </p>
                                             </div>
-                                            <p className="text-[10px] text-theme-text opacity-50 font-bold uppercase tracking-wide">
-                                                {target.count} / {target.target}
-                                            </p>
                                         </div>
                                     </div>
-                                </div>
 
-                                <ArrowRight className="w-4 h-4 text-theme-text opacity-20 group-hover:translate-x-1 transition-transform" />
-                            </motion.div>
-                        ))
+                                    <div className="flex flex-col items-end gap-1">
+                                        <span className="text-[10px] font-black" style={{ color: themeObj.color }}>{pct}%</span>
+                                        <ArrowRight className="w-4 h-4 text-theme-text opacity-20 group-hover:translate-x-1 transition-transform" />
+                                    </div>
+                                </motion.div>
+                            );
+                        })
                     ) : (
                         <div className="col-span-1 md:col-span-2 text-center py-10 bg-theme-card/30 rounded-xl border border-dashed border-theme-border/50 flex flex-col items-center justify-center gap-2 opacity-60">
                             <Zap className="w-6 h-6 text-theme-text/20" />

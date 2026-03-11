@@ -30,7 +30,13 @@ export default function GlobalOverlays() {
         acknowledgeStudyMiss,
     } = useFocus();
 
-    const [showSplash, setShowSplash] = useState(true);
+    // Show splash only once per browser session
+    const [showSplash, setShowSplash] = useState(() => {
+        if (typeof window === "undefined") return true;
+        if (sessionStorage.getItem("fp_splash_shown")) return false;
+        sessionStorage.setItem("fp_splash_shown", "1");
+        return true;
+    });
 
     return (
         <>
@@ -68,11 +74,16 @@ export default function GlobalOverlays() {
                 {viewMode === "tap" && activeTapId && state.tapTargets[activeTapId] && (
                     <TapCounter
                         target={state.tapTargets[activeTapId].target}
+                        initialCount={state.tapTargets[activeTapId].count}
                         title={state.tapTargets[activeTapId].title}
                         theme={state.tapTargets[activeTapId].theme}
                         icon={state.tapTargets[activeTapId].icon}
                         onClose={() => setViewMode("dashboard")}
-                        onComplete={(stats) => updateTapTarget(activeTapId, stats.totalTaps)}
+                        onProgress={(count) => updateTapTarget(activeTapId, count)}
+                        onComplete={(stats) => {
+                            updateTapTarget(activeTapId, stats.totalTaps);
+                            setViewMode("dashboard");
+                        }}
                     />
                 )}
             </AnimatePresence>
